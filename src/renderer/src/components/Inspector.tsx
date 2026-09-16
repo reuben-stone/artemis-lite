@@ -1,9 +1,12 @@
-import type { WorkflowItem, InspectorTab } from '../App'
+import type { WorkflowItem, InspectorTab, TraceEvent, WorkflowStep, UsageData } from '../App'
 
 interface Props {
   workflow: WorkflowItem | null
   tab: InspectorTab
   onTabChange: (tab: InspectorTab) => void
+  traceEvents: TraceEvent[]
+  steps: WorkflowStep[]
+  usage: UsageData | null
 }
 
 const TABS: { id: InspectorTab; label: string }[] = [
@@ -13,7 +16,7 @@ const TABS: { id: InspectorTab; label: string }[] = [
   { id: 'usage', label: 'Usage' }
 ]
 
-export function Inspector({ workflow, tab, onTabChange }: Props) {
+export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usage }: Props) {
   return (
     <div className="inspector">
       <div className="tab-bar" role="tablist">
@@ -37,69 +40,75 @@ export function Inspector({ workflow, tab, onTabChange }: Props) {
             <span className="empty-state-text">Select a workflow to inspect</span>
           </div>
         ) : tab === 'trace' ? (
-          <TraceView workflowId={workflow.id} />
+          <TraceView events={traceEvents} />
         ) : tab === 'context' ? (
-          <ContextView workflowId={workflow.id} />
+          <ContextView />
         ) : tab === 'state' ? (
-          <StateView workflow={workflow} />
+          <StateView workflow={workflow} steps={steps} />
         ) : (
-          <UsageView workflowId={workflow.id} />
+          <UsageView usage={usage} />
         )}
       </div>
     </div>
   )
 }
 
-function TraceView({ workflowId: _ }: { workflowId: string }) {
-  return (
-    <div>
-      <div className="section-label">Trace</div>
-      <p className="empty-state-text" style={{ padding: '16px 0' }}>
-        Trace events will appear here when workflows execute.
-      </p>
-    </div>
-  )
-}
+// ── Trace ──────────────────────────────────────────────────────────
 
-function ContextView({ workflowId: _ }: { workflowId: string }) {
+function TraceView({ events }: { events: TraceEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <div>
+        <div className="section-label">Trace</div>
+        <p className="empty-state-text" style={{ padding: '16px 0' }}>
+          Trace events will appear here when workflows execute.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div>
-      <div className="section-label">Context Composition</div>
-      <div style={{ marginTop: 8 }}>
-        <div className="context-row">
-          <span className="context-row-label">System instructions</span>
-          <span className="context-row-value">&mdash;</span>
-        </div>
-        <div className="context-row">
-          <span className="context-row-label">Current goal</span>
-          <span className="context-row-value">&mdash;</span>
-        </div>
-        <div className="context-row">
-          <span className="context-row-label">Workflow state</span>
-          <span className="context-row-value">&mdash;</span>
-        </div>
-        <div className="context-row">
-          <span className="context-row-label">Retrieved memory</span>
-          <span className="context-row-value">&mdash;</span>
-        </div>
-        <div className="context-row">
-          <span className="context-row-label">Retrieved documents</span>
-          <span className="context-row-value">&mdash;</span>
-        </div>
-        <div className="context-row">
-          <span className="context-row-label">Tool evidence</span>
-          <span className="context-row-value">&mdash;</span>
-        </div>
-        <div className="context-total">
-          <span>Total</span>
-          <span style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>&mdash;</span>
-        </div>
+      <div className="section-label">Trace ({events.length} events)</div>
+      <div style={{ marginTop: 4 }}>
+        {events.map(ev => (
+          <div key={ev.id} className="trace-event-row">
+            <span className="trace-time">
+              {new Date(ev.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', fractionalSecondDigits: 3 } as any)}
+            </span>
+            <span className="trace-type">
+              {ev.type}
+              {ev.toolName ? ` (${ev.toolName})` : ''}
+            </span>
+            <span className="trace-detail">
+              {ev.durationMs != null ? `${ev.durationMs.toFixed(0)}ms` : ''}
+              {ev.inputTokens != null ? ` ${ev.inputTokens}in` : ''}
+              {ev.outputTokens != null ? ` ${ev.outputTokens}out` : ''}
+              {ev.status === 'failure' ? ' ✕' : ''}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   )
 }
 
-function StateView({ workflow }: { workflow: WorkflowItem }) {
+// ── Context ────────────────────────────────────────────────────────
+
+function ContextView() {
+  return (
+    <div>
+      <div className="section-label">Context Composition</div>
+      <p className="empty-state-text" style={{ padding: '16px 0' }}>
+        Context inspection will be available when retrieval and memory are implemented.
+      </p>
+    </div>
+  )
+}
+
+// ── State ──────────────────────────────────────────────────────────
+
+function StateView({ workflow, steps }: { workflow: WorkflowItem; steps: WorkflowStep[] }) {
   return (
     <div>
       <div className="section-label">Workflow State</div>
@@ -109,20 +118,8 @@ function StateView({ workflow }: { workflow: WorkflowItem }) {
           <span className="state-field-value">{workflow.status}</span>
         </div>
         <div className="state-field">
-          <span className="state-field-label">Current step</span>
-          <span className="state-field-value">&mdash;</span>
-        </div>
-        <div className="state-field">
-          <span className="state-field-label">Checkpoint</span>
-          <span className="state-field-value">&mdash;</span>
-        </div>
-        <div className="state-field">
-          <span className="state-field-label">Plan version</span>
-          <span className="state-field-value">&mdash;</span>
-        </div>
-        <div className="state-field">
-          <span className="state-field-label">Pending approval</span>
-          <span className="state-field-value">false</span>
+          <span className="state-field-label">Steps</span>
+          <span className="state-field-value">{steps.length}</span>
         </div>
         <div className="state-field">
           <span className="state-field-label">Created</span>
@@ -131,42 +128,77 @@ function StateView({ workflow }: { workflow: WorkflowItem }) {
           </span>
         </div>
       </div>
+
+      {steps.length > 0 && (
+        <>
+          <div className="section-label" style={{ marginTop: 16 }}>Steps</div>
+          {steps.map(s => (
+            <div key={s.id} className="state-field">
+              <span className="state-field-label">
+                {s.type}{s.toolName ? `: ${s.toolName}` : ''}
+              </span>
+              <span className="state-field-value">{s.status}</span>
+            </div>
+          ))}
+        </>
+      )}
     </div>
   )
 }
 
-function UsageView({ workflowId: _ }: { workflowId: string }) {
+// ── Usage ──────────────────────────────────────────────────────────
+
+function UsageView({ usage }: { usage: UsageData | null }) {
+  if (!usage || (usage.modelCalls === 0 && usage.toolCalls === 0)) {
+    return (
+      <div>
+        <div className="section-label">Usage</div>
+        <p className="empty-state-text" style={{ padding: '16px 0' }}>
+          Usage data will appear after the workflow executes.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div>
       <div className="section-label">Usage</div>
       <div style={{ marginTop: 8 }}>
         <div className="usage-row">
           <span className="usage-row-label">Model calls</span>
-          <span className="usage-row-value">0</span>
+          <span className="usage-row-value">{usage.modelCalls}</span>
         </div>
         <div className="usage-row">
           <span className="usage-row-label">Input tokens</span>
-          <span className="usage-row-value">0</span>
+          <span className="usage-row-value">{usage.inputTokens.toLocaleString()}</span>
         </div>
         <div className="usage-row">
           <span className="usage-row-label">Output tokens</span>
-          <span className="usage-row-value">0</span>
+          <span className="usage-row-value">{usage.outputTokens.toLocaleString()}</span>
         </div>
         <div className="usage-row">
           <span className="usage-row-label">Tool calls</span>
-          <span className="usage-row-value">0</span>
+          <span className="usage-row-value">{usage.toolCalls}</span>
         </div>
         <div className="usage-row">
           <span className="usage-row-label">Retries</span>
-          <span className="usage-row-value">0</span>
+          <span className="usage-row-value">{usage.retries}</span>
         </div>
         <div className="usage-row">
           <span className="usage-row-label">Duration</span>
-          <span className="usage-row-value">0.0s</span>
+          <span className="usage-row-value">
+            {usage.durationMs < 1000
+              ? `${usage.durationMs}ms`
+              : `${(usage.durationMs / 1000).toFixed(1)}s`}
+          </span>
         </div>
         <div className="usage-row">
           <span className="usage-row-label">Estimated cost</span>
-          <span className="usage-row-value">&mdash;</span>
+          <span className="usage-row-value">
+            {usage.estimatedCost > 0
+              ? `$${usage.estimatedCost.toFixed(4)}`
+              : 'Unavailable'}
+          </span>
         </div>
       </div>
     </div>

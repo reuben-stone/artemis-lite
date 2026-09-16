@@ -7,6 +7,15 @@ import {
   ResolveApprovalInput,
   GetWorkflowInput
 } from '../shared/ipc'
+import type { RendererEvent } from '../shared/ipc'
+import {
+  listWorkflows, getWorkflow, listSteps,
+  listTraceEvents, getWorkflowUsage, listPendingApprovals
+} from './store'
+import { runWorkflow, resolveWorkflowApproval } from './workflow'
+import { AnthropicProvider } from './model/anthropic'
+import { createDefaultRegistry } from './tools/registry'
+import { existsSync, mkdirSync } from 'fs'
 
 let win: BrowserWindow | null = null
 
@@ -40,7 +49,6 @@ function createWindow(): void {
     })
   })
 
-  // Block new windows; open external links in system browser
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('https://') || url.startsWith('http://')) {
       shell.openExternal(url)
@@ -48,12 +56,10 @@ function createWindow(): void {
     return { action: 'deny' }
   })
 
-  // Deny all permission requests (no mic/camera/etc needed for Lite)
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, callback) => {
     callback(false)
   })
 
-  // Load renderer
   if (process.env.ELECTRON_RENDERER_URL) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
@@ -61,68 +67,131 @@ function createWindow(): void {
   }
 }
 
-// ── IPC handlers ─────────────────────────────────────────────────────
+// ── Emit workflow events to renderer ─────────────────────────────
+
+function emitToRenderer(event: RendererEvent): void {
+  if (win && !win.isDestroyed()) {
+    win.webContents.send(IpcChannel.WORKFLOW_EVENT, event)
+  }
+}
+
+// ── Demo workspace ───────────────────────────────────────────────
+
+function getDemoWorkspacePath(): string {
+  const p = join(app.getPath('userData'), 'demo-workspace')
+  if (!existsSync(p)) {
+    mkdirSync(p, { recursive: true })
+    // Seed with a sample file
+    const { writeFileSync } = require('fs')
+    writeFileSync(join(p, 'project-notes.md'), `# Project Notes
+
+## Release 1.2
+- Feature: Add user preferences panel
+- Fix: Resolve timeout in data sync
+- Pending: Update API documentation
+
+## Backlog
+- Investigate caching strategy
+- Review error handling in worker module
+- Create onboarding flow for new users
+`)
+    writeFileSync(join(p, 'README.md'), `# Demo Workspace
+
+This is a demo workspace for Artemis Lite workflow testing.
+`)
+  }
+  return p
+}
+
+// ── IPC handlers ─────────────────────────────────────────────────
 
 function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.WORKFLOW_START, async (_event, raw: unknown) => {
     const input = StartWorkflowInput.parse(raw)
-    // Phase 2: wire to workflow service
-    return { id: crypto.randomUUID(), goal: input.goal, status: 'queued' as const }
+
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY not set. Export it in your environment before running.')
+    }
+
+    const model = new AnthropicProvider(apiKey)
+    const tools = createDefaultRegistry()
+    const workspacePath = getDemoWorkspacePath()
+
+    // Run workflow asynchronously — don't block the IPC response
+    const wfPromise = runWorkflow(input.goal, {
+      model,
+      tools,
+      workspacePath,
+      emit: emitToRenderer
+    })
+
+    // Return immediately with the workflow ID from the first event
+    // The orchestrator will emit events as it progresses
+    const wf = await wfPromise
+    return { id: wf.id, goal: wf.goal, status: wf.status }
   })
 
   ipcMain.handle(IpcChannel.WORKFLOW_CANCEL, async (_event, raw: unknown) => {
     const input = CancelWorkflowInput.parse(raw)
-    // Phase 2: wire to workflow service
+    // Phase: cancellation support
     return { workflowId: input.workflowId, status: 'cancelled' as const }
   })
 
   ipcMain.handle(IpcChannel.WORKFLOW_LIST, async () => {
-    // Phase 2: return from persistence
-    return []
+    return listWorkflows().map(w => ({
+      id: w.id,
+      goal: w.goal,
+      status: w.status,
+      createdAt: w.createdAt,
+      updatedAt: w.updatedAt
+    }))
   })
 
   ipcMain.handle(IpcChannel.WORKFLOW_GET, async (_event, raw: unknown) => {
     const input = GetWorkflowInput.parse(raw)
-    // Phase 2: return from persistence
-    return { workflowId: input.workflowId, workflow: null }
+    const wf = getWorkflow(input.workflowId)
+    if (!wf) return { workflowId: input.workflowId, workflow: null, steps: [] }
+    const steps = listSteps(wf.id)
+    return {
+      workflowId: wf.id,
+      workflow: wf,
+      steps: steps.map(s => ({
+        id: s.id,
+        workflowId: s.workflowId,
+        type: s.type,
+        status: s.status,
+        attempt: s.attempt,
+        toolName: s.toolName,
+        outputData: s.outputData,
+        startedAt: s.startedAt,
+        completedAt: s.completedAt
+      }))
+    }
   })
 
   ipcMain.handle(IpcChannel.WORKFLOW_TRACE, async (_event, raw: unknown) => {
     const input = GetWorkflowInput.parse(raw)
-    // Phase 2: return trace events
-    return { workflowId: input.workflowId, events: [] }
+    return { workflowId: input.workflowId, events: listTraceEvents(input.workflowId) }
   })
 
   ipcMain.handle(IpcChannel.WORKFLOW_USAGE, async (_event, raw: unknown) => {
     const input = GetWorkflowInput.parse(raw)
-    // Phase 2: return usage summary
-    return {
-      workflowId: input.workflowId,
-      usage: {
-        modelCalls: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        estimatedCost: 0,
-        toolCalls: 0,
-        retries: 0,
-        durationMs: 0
-      }
-    }
+    return { workflowId: input.workflowId, usage: getWorkflowUsage(input.workflowId) }
   })
 
   ipcMain.handle(IpcChannel.APPROVAL_RESOLVE, async (_event, raw: unknown) => {
     const input = ResolveApprovalInput.parse(raw)
-    // Phase 2: resolve approval in workflow service
+    resolveWorkflowApproval(input.approvalId, input.decision)
     return { approvalId: input.approvalId, decision: input.decision }
   })
 
   ipcMain.handle(IpcChannel.APPROVAL_LIST, async () => {
-    // Phase 2: return pending approvals
-    return []
+    return listPendingApprovals()
   })
 }
 
-// ── App lifecycle ────────────────────────────────────────────────────
+// ── App lifecycle ────────────────────────────────────────────────
 
 app.whenReady().then(() => {
   registerIpcHandlers()
