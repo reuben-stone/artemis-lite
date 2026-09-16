@@ -1,4 +1,5 @@
 import type { WorkflowItem, InspectorTab, TraceEvent, WorkflowStep, UsageData } from '../App'
+import { FailureLab } from './FailureLab'
 
 interface Props {
   workflow: WorkflowItem | null
@@ -13,7 +14,8 @@ const TABS: { id: InspectorTab; label: string }[] = [
   { id: 'trace', label: 'Trace' },
   { id: 'context', label: 'Context' },
   { id: 'state', label: 'State' },
-  { id: 'usage', label: 'Usage' }
+  { id: 'usage', label: 'Usage' },
+  { id: 'faults', label: 'Faults' }
 ]
 
 export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usage }: Props) {
@@ -45,9 +47,11 @@ export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usag
           <ContextView />
         ) : tab === 'state' ? (
           <StateView workflow={workflow} steps={steps} />
-        ) : (
+        ) : tab === 'usage' ? (
           <UsageView usage={usage} />
-        )}
+        ) : tab === 'faults' ? (
+          <FailureLab />
+        ) : null}
       </div>
     </div>
   )

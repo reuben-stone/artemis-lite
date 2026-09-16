@@ -1,5 +1,5 @@
 /**
- * Workflow orchestrator with recovery.
+ * Workflow orchestrator with recovery, fault injection and retry.
  *
  * SQLite is the source of truth. The in-memory approval resolver map is
  * an optimisation for a currently-running process, not the authority.
@@ -17,8 +17,40 @@ import type { ModelProvider, PlanOutput } from './model/types'
 import { executeTool, getToolDefinitions, type ToolRegistry } from './tools/registry'
 import type { WorkflowStatus, RendererEvent } from '../shared/ipc'
 import { validateTransition } from './workflow/transitions'
+import {
+  type FaultInjector, noOpInjector,
+  InjectedInterruptError, InjectedTimeoutError,
+  InjectedInvalidOutputError, InjectedProviderError, InjectedToolFailureError
+} from './fault-injector'
 
 export { validateTransition }
+
+// ── Retry policy ───────────────────────────────────────────────────
+
+const RETRY_CONFIG = {
+  maxAttempts: 2,
+  backoffMs: [500, 1000]
+}
+
+function isTransientError(err: unknown): boolean {
+  if (err instanceof InjectedTimeoutError) return true
+  if (err instanceof InjectedProviderError) return true
+  if (err instanceof Error) {
+    const msg = err.message.toLowerCase()
+    return msg.includes('timeout') || msg.includes('429') || msg.includes('5xx') ||
+           msg.includes('econnreset') || msg.includes('econnrefused') ||
+           msg.includes('provider unavailable') || msg.includes('service unavailable')
+  }
+  return false
+}
+
+function isInterruptError(err: unknown): boolean {
+  return err instanceof InjectedInterruptError
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
 
 // ── Types ──────────────────────────────────────────────────────────
 
@@ -29,6 +61,7 @@ export interface OrchestratorDeps {
   tools: ToolRegistry
   workspacePath: string
   emit: Emit
+  faultInjector?: FaultInjector
 }
 
 // ── State machine ──────────────────────────────────────────────────
@@ -61,9 +94,11 @@ function trace(workflowId: string, type: string, extra: Partial<Parameters<typeo
   })
 }
 
+function getFaultInjector(deps: OrchestratorDeps): FaultInjector {
+  return deps.faultInjector ?? noOpInjector
+}
+
 // ── Approval management ────────────────────────────────────────────
-// In-memory map for the current process. NOT the authority — persisted
-// approval records are. This map is recreated on resume.
 
 const pendingApprovalResolvers = new Map<string, {
   resolve: (decision: 'approved' | 'rejected') => void
@@ -71,9 +106,7 @@ const pendingApprovalResolvers = new Map<string, {
 }>()
 
 export function resolveWorkflowApproval(approvalId: string, decision: 'approved' | 'rejected'): void {
-  // Persist first — this is the source of truth
   resolveApproval(approvalId, decision)
-  // Then unblock the in-memory promise if it exists
   for (const [wfId, entry] of pendingApprovalResolvers) {
     if (entry.approvalId === approvalId) {
       entry.resolve(decision)
@@ -83,17 +116,10 @@ export function resolveWorkflowApproval(approvalId: string, decision: 'approved'
   }
 }
 
-/**
- * Wait for an approval decision. Checks persisted state first (handles
- * the case where approval was resolved before this process existed),
- * then creates an in-memory promise for live waiting.
- */
 function waitForApproval(workflowId: string, approval: ApprovalRow, emit: Emit): Promise<'approved' | 'rejected'> {
-  // Check if already resolved in persistence (recovery case)
   if (approval.status === 'approved') return Promise.resolve('approved')
   if (approval.status === 'rejected') return Promise.resolve('rejected')
 
-  // Emit approval request to renderer
   emit({
     type: 'approval.requested',
     approval: {
@@ -113,7 +139,53 @@ function waitForApproval(workflowId: string, approval: ApprovalRow, emit: Emit):
   })
 }
 
-// ── Step execution (shared between run and resume) ─────────────────
+// ── Model call with retry ──────────────────────────────────────────
+
+async function callModelWithRetry<T>(
+  wf: WorkflowRow,
+  phase: 'plan' | 'verify',
+  callFn: () => Promise<T>,
+  fi: FaultInjector
+): Promise<T> {
+  for (let attempt = 0; attempt <= RETRY_CONFIG.maxAttempts; attempt++) {
+    try {
+      await fi.beforeModelCall(phase)
+      return await callFn()
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const isInjected = 'injected' in (err as any)
+
+      trace(wf.id, `model.${isTransientError(err) ? 'timeout' : 'failed'}`, {
+        status: 'failure',
+        errorCode: errMsg,
+        retry: attempt,
+        metadata: isInjected ? JSON.stringify({ source: 'fault_injection' }) : null
+      })
+
+      if (isInjected) {
+        trace(wf.id, 'fault.triggered', {
+          metadata: JSON.stringify({ kind: (err as Error).message, phase })
+        })
+      }
+
+      if (isInterruptError(err)) throw err
+
+      if (isTransientError(err) && attempt < RETRY_CONFIG.maxAttempts) {
+        trace(wf.id, 'model.retry', {
+          retry: attempt + 1,
+          metadata: JSON.stringify({ backoffMs: RETRY_CONFIG.backoffMs[attempt] })
+        })
+        await sleep(RETRY_CONFIG.backoffMs[attempt])
+        continue
+      }
+
+      throw err
+    }
+  }
+  throw new Error('Unreachable')
+}
+
+// ── Tool execution with retry and fault injection ──────────────────
 
 async function executeToolStep(
   wf: WorkflowRow,
@@ -124,6 +196,8 @@ async function executeToolStep(
   deps: OrchestratorDeps
 ): Promise<unknown> {
   const { tools, workspacePath, emit } = deps
+  const fi = getFaultInjector(deps)
+
   const toolDef = tools.get(toolName)
   if (!toolDef) {
     updateStep(step.id, { status: 'failed', completedAt: new Date().toISOString() })
@@ -133,26 +207,20 @@ async function executeToolStep(
 
   // Approval gate for write tools
   if (toolDef.approval === 'write' || toolDef.approval === 'always') {
-    // Check for existing approval (recovery or first time)
     let approval = getApprovalForStep(wf.id, step.id)
     if (!approval) {
-      // First time: create approval and transition
       if (wf.status !== 'awaiting_approval') {
         transition(wf, 'awaiting_approval')
         emit({ type: 'workflow.status', workflowId: wf.id, status: 'awaiting_approval' })
       }
-
       approval = createApproval({
-        workflowId: wf.id,
-        stepId: step.id,
-        action: toolName,
-        summary: objective,
+        workflowId: wf.id, stepId: step.id,
+        action: toolName, summary: objective,
         risk: toolDef.approval === 'always' ? 'high' : 'medium',
         payloadPreview: Object.keys(toolArgs).length > 0 ? JSON.stringify(toolArgs) : null
       })
       trace(wf.id, 'approval.requested', { stepId: step.id, status: 'start' })
     } else if (approval.status === 'pending' && wf.status !== 'awaiting_approval') {
-      // Recovery: approval exists but workflow status wasn't updated
       transition(wf, 'awaiting_approval')
       emit({ type: 'workflow.status', workflowId: wf.id, status: 'awaiting_approval' })
     }
@@ -165,14 +233,13 @@ async function executeToolStep(
       throw new ApprovalRejectedError()
     }
 
-    // Resume executing after approval
     if (wf.status === 'awaiting_approval') {
       transition(wf, 'executing')
       emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
     }
   }
 
-  // Idempotency check — key identifies the logical side effect, not the attempt
+  // Idempotency check
   const idemKey = idempotencyKey(wf.id, step.id, toolName)
   const existing = checkIdempotency(idemKey)
 
@@ -182,19 +249,67 @@ async function executeToolStep(
     return result
   }
 
-  // Execute
-  markIdempotencyPending(idemKey)
-  emit({ type: 'tool.started', workflowId: wf.id, stepId: step.id, toolName })
+  // Reconciliation: if ledger says 'pending', the side effect may have occurred
+  // before the process died. For create_work_item, check if the artifact exists.
+  if (existing?.status === 'pending' && toolDef.mode === 'write') {
+    trace(wf.id, 'tool.reconciliation_check', {
+      stepId: step.id, toolName, status: 'start',
+      metadata: JSON.stringify({ reason: 'pending_ledger_entry_after_restart' })
+    })
+    // Try to reconcile — execute returns existing artifact if found
+  }
 
-  const toolStart = Date.now()
-  const toolResult = await executeTool(tools, toolName, toolArgs, { workspacePath })
-  const toolDuration = Date.now() - toolStart
+  // Execute with retry
+  for (let attempt = 0; attempt <= RETRY_CONFIG.maxAttempts; attempt++) {
+    try {
+      if (attempt === 0 && !existing) {
+        markIdempotencyPending(idemKey)
+      }
+      emit({ type: 'tool.started', workflowId: wf.id, stepId: step.id, toolName })
 
-  markIdempotencyComplete(idemKey, toolResult)
-  trace(wf.id, 'tool.completed', { stepId: step.id, toolName, status: 'success', durationMs: toolDuration })
-  emit({ type: 'tool.completed', workflowId: wf.id, stepId: step.id, toolName, durationMs: toolDuration })
+      const toolStart = Date.now()
+      const toolResult = await executeTool(tools, toolName, toolArgs, { workspacePath })
+      const toolDuration = Date.now() - toolStart
 
-  return toolResult
+      // Fault injection point: after side effect, before idempotency completion
+      await fi.afterToolSideEffect(step.id, toolName)
+
+      markIdempotencyComplete(idemKey, toolResult)
+      trace(wf.id, 'tool.completed', {
+        stepId: step.id, toolName, status: 'success',
+        durationMs: toolDuration, retry: attempt > 0 ? attempt : null
+      })
+      emit({ type: 'tool.completed', workflowId: wf.id, stepId: step.id, toolName, durationMs: toolDuration })
+
+      return toolResult
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      const isInjected = 'injected' in (err as any)
+
+      if (isInjected) {
+        trace(wf.id, 'fault.triggered', {
+          stepId: step.id,
+          metadata: JSON.stringify({ kind: errMsg, toolName })
+        })
+      }
+
+      if (isInterruptError(err)) throw err
+
+      trace(wf.id, attempt < RETRY_CONFIG.maxAttempts && isTransientError(err) ? 'tool.retry' : 'tool.failed', {
+        stepId: step.id, toolName, status: 'failure',
+        errorCode: errMsg, retry: attempt,
+        metadata: isInjected ? JSON.stringify({ source: 'fault_injection' }) : null
+      })
+
+      if (isTransientError(err) && attempt < RETRY_CONFIG.maxAttempts) {
+        await sleep(RETRY_CONFIG.backoffMs[attempt])
+        continue
+      }
+
+      throw err
+    }
+  }
+  throw new Error('Unreachable')
 }
 
 class ApprovalRejectedError extends Error {
@@ -210,9 +325,9 @@ async function executePlanSteps(
   deps: OrchestratorDeps
 ): Promise<Record<string, unknown>> {
   const { emit } = deps
+  const fi = getFaultInjector(deps)
   const stepResults: Record<string, unknown> = {}
 
-  // Collect results from already-completed steps
   for (const s of existingSteps) {
     if (s.status === 'completed' && s.toolName && s.outputData) {
       stepResults[s.toolName] = JSON.parse(s.outputData)
@@ -222,14 +337,10 @@ async function executePlanSteps(
   for (const planItem of plan.steps) {
     if (planItem.preferredAction !== 'use_tool' || !planItem.toolName) continue
 
-    // Check if a step already exists for this plan item
     let step = existingSteps.find(s => s.toolName === planItem.toolName && s.type === 'tool')
 
     if (step?.status === 'completed') {
-      // Already done — skip, use persisted result
-      if (step.outputData) {
-        stepResults[planItem.toolName] = JSON.parse(step.outputData)
-      }
+      if (step.outputData) stepResults[planItem.toolName] = JSON.parse(step.outputData)
       trace(wf.id, 'step.skipped_completed', { stepId: step.id, toolName: planItem.toolName, status: 'success' })
       continue
     }
@@ -256,9 +367,13 @@ async function executePlanSteps(
           completedAt: new Date().toISOString()
         })
         emit({ type: 'step.completed', workflowId: wf.id, step: stepToSummary(step) })
+
+        // Fault injection: after step completion
+        await fi.afterStepCompletion(step.id)
       }
     } catch (err) {
       if (err instanceof ApprovalRejectedError) throw err
+      if (isInterruptError(err)) throw err
       const errMsg = err instanceof Error ? err.message : String(err)
       trace(wf.id, 'tool.failed', { stepId: step.id, toolName: planItem.toolName, status: 'failure', errorCode: errMsg })
       updateStep(step.id, { status: 'failed', completedAt: new Date().toISOString() })
@@ -278,13 +393,16 @@ async function runVerification(
   deps: OrchestratorDeps
 ): Promise<void> {
   const { model, emit } = deps
+  const fi = getFaultInjector(deps)
 
-  // Check for existing completed verify step (recovery)
   const existingVerify = existingSteps.find(s => s.type === 'verify' && s.status === 'completed')
   if (existingVerify) {
     trace(wf.id, 'step.skipped_completed', { stepId: existingVerify.id, status: 'success' })
     return
   }
+
+  // Fault injection: before verification
+  await fi.beforeVerification()
 
   if (wf.status !== 'verifying') {
     transition(wf, 'verifying')
@@ -296,16 +414,16 @@ async function runVerification(
   updateStep(verifyStep.id, { status: 'running', startedAt: verifyStep.startedAt ?? new Date().toISOString() })
 
   const verifyStart = Date.now()
-  const verifyResult = await model.generateVerification({ goal: wf.goal, stepResults, plan })
+  const verifyResult = await callModelWithRetry(wf, 'verify', () =>
+    model.generateVerification({ goal: wf.goal, stepResults, plan }),
+    fi
+  )
   const verifyDuration = Date.now() - verifyStart
 
   appendUsage({
-    workflowId: wf.id,
-    stepId: verifyStep.id,
-    provider: verifyResult.provider,
-    model: verifyResult.model,
-    inputTokens: verifyResult.usage.inputTokens,
-    outputTokens: verifyResult.usage.outputTokens,
+    workflowId: wf.id, stepId: verifyStep.id,
+    provider: verifyResult.provider, model: verifyResult.model,
+    inputTokens: verifyResult.usage.inputTokens, outputTokens: verifyResult.usage.outputTokens,
     estimatedCost: verifyResult.usage.estimatedCost ?? null,
     timestamp: new Date().toISOString()
   })
@@ -329,7 +447,8 @@ async function runVerification(
 // ── Run (new workflow) ─────────────────────────────────────────────
 
 export async function runWorkflow(goal: string, deps: OrchestratorDeps): Promise<WorkflowRow> {
-  const { model, tools, workspacePath, emit } = deps
+  const { model, tools, emit } = deps
+  const fi = getFaultInjector(deps)
 
   const wf = createWorkflow(goal)
   trace(wf.id, 'workflow.created', { status: 'start' })
@@ -345,7 +464,10 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps): Promise
     updateStep(planStep.id, { status: 'running', startedAt: new Date().toISOString() })
 
     const planStart = Date.now()
-    const planResult = await model.generatePlan({ goal, workspacePath, tools: getToolDefinitions(tools) })
+    const planResult = await callModelWithRetry(wf, 'plan', () =>
+      model.generatePlan({ goal, workspacePath: deps.workspacePath, tools: getToolDefinitions(tools) }),
+      fi
+    )
     const planDuration = Date.now() - planStart
 
     appendUsage({
@@ -389,6 +511,16 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps): Promise
     return getWorkflow(wf.id)!
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    // Interrupt errors leave workflow in current state for recovery
+    if (isInterruptError(err)) {
+      trace(wf.id, 'workflow.interrupted', {
+        status: 'failure',
+        errorCode: errMsg,
+        metadata: JSON.stringify({ source: 'fault_injection', status: wf.status })
+      })
+      emit({ type: 'workflow.failed', workflowId: wf.id, error: `Interrupted: ${errMsg}` })
+      return getWorkflow(wf.id)!
+    }
     try { transition(wf, 'failed') } catch { /* already terminal */ }
     trace(wf.id, 'workflow.failed', { status: 'failure', errorCode: errMsg })
     emit({ type: 'workflow.failed', workflowId: wf.id, error: errMsg })
@@ -404,6 +536,7 @@ export function discoverInterruptedWorkflows(): WorkflowRow[] {
 
 export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps): Promise<WorkflowRow> {
   const { model, emit } = deps
+  const fi = getFaultInjector(deps)
   const wf = getWorkflow(workflowId)
   if (!wf) throw new Error(`Workflow ${workflowId} not found`)
 
@@ -412,7 +545,6 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
     throw new Error(`Cannot resume terminal workflow (status: ${wf.status})`)
   }
 
-  // Trace the recovery
   trace(wf.id, 'workflow.interrupted', {
     status: 'failure',
     metadata: JSON.stringify({ interruptedAt: wf.updatedAt, recoveredStatus: wf.status })
@@ -423,78 +555,34 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
   const steps = listSteps(wf.id)
 
   try {
-    // Parse the persisted plan (if it exists)
     let plan: PlanOutput | null = null
     if (wf.plan) {
-      try {
-        plan = JSON.parse(wf.plan)
-      } catch {
-        throw new Error('Corrupt plan data — cannot recover')
-      }
+      try { plan = JSON.parse(wf.plan) }
+      catch { throw new Error('Corrupt plan data — cannot recover') }
     }
 
-    // Resume based on persisted status
     switch (wf.status) {
-      case 'queued': {
-        // Restart from planning — effectively a new run but with existing workflow ID
-        trace(wf.id, 'workflow.resumed', { status: 'start', metadata: JSON.stringify({ from: 'queued' }) })
-        transition(wf, 'planning')
-        emit({ type: 'workflow.status', workflowId: wf.id, status: 'planning' })
-
-        const planStep = createStep(wf.id, 'reason')
-        updateStep(planStep.id, { status: 'running', startedAt: new Date().toISOString() })
-
-        const planStart = Date.now()
-        const planResult = await model.generatePlan({
-          goal: wf.goal,
-          workspacePath: deps.workspacePath,
-          tools: getToolDefinitions(deps.tools)
-        })
-        const planDuration = Date.now() - planStart
-
-        appendUsage({
-          workflowId: wf.id, stepId: planStep.id,
-          provider: planResult.provider, model: planResult.model,
-          inputTokens: planResult.usage.inputTokens, outputTokens: planResult.usage.outputTokens,
-          estimatedCost: planResult.usage.estimatedCost ?? null,
-          timestamp: new Date().toISOString()
-        })
-
-        trace(wf.id, 'model.plan', {
-          stepId: planStep.id, status: 'success', durationMs: planDuration,
-          model: planResult.model, inputTokens: planResult.usage.inputTokens, outputTokens: planResult.usage.outputTokens
-        })
-
-        plan = planResult.data
-        updateWorkflow(wf.id, { plan: JSON.stringify(plan) })
-        updateStep(planStep.id, { status: 'completed', outputData: JSON.stringify(plan), completedAt: new Date().toISOString() })
-        emit({ type: 'model.text', workflowId: wf.id, text: plan.summary })
-
-        transition(wf, 'executing')
-        emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
-        const stepResults = await executePlanSteps(wf, plan, listSteps(wf.id), deps)
-        await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
-        break
-      }
-
+      case 'queued':
       case 'planning': {
-        // Plan was interrupted — redo it
-        trace(wf.id, 'workflow.resumed', { status: 'start', metadata: JSON.stringify({ from: 'planning' }) })
+        trace(wf.id, 'workflow.resumed', { status: 'start', metadata: JSON.stringify({ from: wf.status }) })
 
-        // Mark any in-progress plan steps as failed
         for (const s of steps.filter(s => s.type === 'reason' && s.status === 'running')) {
           updateStep(s.id, { status: 'failed', completedAt: new Date().toISOString() })
+        }
+
+        if (wf.status === 'queued') {
+          transition(wf, 'planning')
+          emit({ type: 'workflow.status', workflowId: wf.id, status: 'planning' })
         }
 
         const planStep = createStep(wf.id, 'reason')
         updateStep(planStep.id, { status: 'running', startedAt: new Date().toISOString() })
 
         const planStart = Date.now()
-        const planResult = await model.generatePlan({
-          goal: wf.goal,
-          workspacePath: deps.workspacePath,
-          tools: getToolDefinitions(deps.tools)
-        })
+        const planResult = await callModelWithRetry(wf, 'plan', () =>
+          model.generatePlan({ goal: wf.goal, workspacePath: deps.workspacePath, tools: getToolDefinitions(deps.tools) }),
+          fi
+        )
         const planDuration = Date.now() - planStart
 
         appendUsage({
@@ -531,17 +619,11 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
           metadata: JSON.stringify({ from: wf.status, completedSteps: steps.filter(s => s.status === 'completed').length })
         })
 
-        // Mark any in-progress (interrupted) tool steps back to pending
         for (const s of steps.filter(s => s.type === 'tool' && s.status === 'running')) {
           updateStep(s.id, { status: 'pending' })
         }
 
-        // If we were awaiting_approval, the approval record is persisted.
-        // executePlanSteps will find it via getApprovalForStep and re-present or use it.
-
-        if (wf.status === 'awaiting_approval') {
-          // Don't transition — executePlanSteps will handle the approval flow
-        } else {
+        if (wf.status !== 'awaiting_approval') {
           emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
         }
 
@@ -554,7 +636,6 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         if (!plan) throw new Error('Cannot resume verifying workflow without a plan')
         trace(wf.id, 'workflow.resumed', { status: 'start', metadata: JSON.stringify({ from: 'verifying' }) })
 
-        // Collect step results from completed steps
         const stepResults: Record<string, unknown> = {}
         for (const s of steps) {
           if (s.status === 'completed' && s.toolName && s.outputData) {
@@ -570,7 +651,6 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         throw new Error(`Unexpected workflow status for recovery: ${wf.status}`)
     }
 
-    // Complete
     transition(wf, 'completed')
     const usage = getWorkflowUsage(wf.id)
     trace(wf.id, 'workflow.completed', { status: 'success' })
@@ -580,6 +660,14 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
     return getWorkflow(wf.id)!
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)
+    if (isInterruptError(err)) {
+      trace(wf.id, 'workflow.interrupted', {
+        status: 'failure', errorCode: errMsg,
+        metadata: JSON.stringify({ source: 'fault_injection', status: wf.status })
+      })
+      emit({ type: 'workflow.failed', workflowId: wf.id, error: `Interrupted: ${errMsg}` })
+      return getWorkflow(wf.id)!
+    }
     try { transition(wf, 'failed') } catch { /* already terminal */ }
     trace(wf.id, 'workflow.failed', { status: 'failure', errorCode: errMsg })
     emit({ type: 'workflow.failed', workflowId: wf.id, error: errMsg })

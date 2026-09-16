@@ -94,6 +94,40 @@ describe('create_work_item', () => {
   })
 })
 
+describe('create_work_item reconciliation', () => {
+  it('returns reconciled=true if file already exists with matching title', async () => {
+    // First create
+    const result1 = await executeTool(registry, 'create_work_item', {
+      title: 'Reconcile test',
+      description: 'Test reconciliation'
+    }, { workspacePath: testDir }) as any
+
+    expect(result1.created).toBe(true)
+
+    // Second create with same title — should reconcile, not re-create
+    const result2 = await executeTool(registry, 'create_work_item', {
+      title: 'Reconcile test',
+      description: 'Test reconciliation'
+    }, { workspacePath: testDir }) as any
+
+    expect(result2.created).toBe(false)
+    expect(result2.reconciled).toBe(true)
+    expect(result2.id).toBe(result1.id) // Same deterministic ID
+  })
+
+  it('uses deterministic ID from title', async () => {
+    const result1 = await executeTool(registry, 'create_work_item', {
+      title: 'Deterministic ID test'
+    }, { workspacePath: testDir }) as any
+
+    const result2 = await executeTool(registry, 'create_work_item', {
+      title: 'Deterministic ID test'
+    }, { workspacePath: testDir }) as any
+
+    expect(result1.id).toBe(result2.id)
+  })
+})
+
 describe('tool contracts', () => {
   it('list_workspace_files is read mode, no approval', () => {
     expect(listWorkspaceFilesTool.mode).toBe('read')

@@ -15,9 +15,21 @@ import {
 import { runWorkflow, resumeWorkflow, discoverInterruptedWorkflows, resolveWorkflowApproval } from './workflow'
 import { AnthropicProvider } from './model/anthropic'
 import { createDefaultRegistry } from './tools/registry'
+import { InjectableFaultInjector, type FaultType } from './fault-injector'
 import { existsSync, mkdirSync } from 'fs'
 
 let win: BrowserWindow | null = null
+
+// Singleton fault injector for the app lifetime
+const faultInjector = new InjectableFaultInjector({
+  onArmed: (fault) => {
+    // Trace armed faults (will be associated with next workflow)
+    console.log(`[Failure Lab] Armed: ${fault}`)
+  },
+  onTriggered: (fault) => {
+    console.log(`[Failure Lab] Triggered: ${fault}`)
+  }
+})
 
 function createWindow(): void {
   win = new BrowserWindow({
@@ -118,12 +130,12 @@ function registerIpcHandlers(): void {
     const tools = createDefaultRegistry()
     const workspacePath = getDemoWorkspacePath()
 
-    // Run workflow asynchronously — don't block the IPC response
     const wfPromise = runWorkflow(input.goal, {
       model,
       tools,
       workspacePath,
-      emit: emitToRenderer
+      emit: emitToRenderer,
+      faultInjector
     })
 
     // Return immediately with the workflow ID from the first event
@@ -216,9 +228,20 @@ function registerIpcHandlers(): void {
       model,
       tools,
       workspacePath,
-      emit: emitToRenderer
+      emit: emitToRenderer,
+      faultInjector
     })
     return { id: wf.id, goal: wf.goal, status: wf.status }
+  })
+
+  ipcMain.handle(IpcChannel.FAULT_ARM, async (_event, raw: unknown) => {
+    const { fault } = raw as { fault: string }
+    faultInjector.arm(fault as FaultType)
+    return { armed: faultInjector.listArmed() }
+  })
+
+  ipcMain.handle(IpcChannel.FAULT_LIST, async () => {
+    return { armed: faultInjector.listArmed() }
   })
 }
 

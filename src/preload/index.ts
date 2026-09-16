@@ -35,6 +35,12 @@ const api = {
     list: () =>
       ipcRenderer.invoke(IpcChannel.APPROVAL_LIST)
   },
+  faultLab: {
+    arm: (fault: string) =>
+      ipcRenderer.invoke(IpcChannel.FAULT_ARM, { fault }),
+    list: () =>
+      ipcRenderer.invoke(IpcChannel.FAULT_LIST)
+  },
   events: {
     onWorkflowEvent: (callback: (event: RendererEvent) => void) => {
       const handler = (_: Electron.IpcRendererEvent, data: RendererEvent) => callback(data)

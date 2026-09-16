@@ -1,12 +1,23 @@
 /**
  * create_work_item — write tool, requires approval.
  * Creates a JSON work item file in the workspace's work-items/ directory.
- * Idempotent via the orchestrator's idempotency ledger.
+ *
+ * Reconciliation strategy:
+ * - The file ID is deterministic (derived from title hash) so that after
+ *   an ambiguous interruption (ledger says "pending"), the tool can check
+ *   if the artifact already exists on disk.
+ * - If the file exists with matching content, return it without re-writing.
+ * - If the file does not exist, create it normally.
+ *
+ * Side-effect categories:
+ * - completed: idempotency ledger says "completed" → skip, use stored result
+ * - safe-to-retry: file does not exist → create normally
+ * - ambiguous: ledger says "pending" → check disk, reconcile
  */
 import { z } from 'zod'
-import { writeFileSync, mkdirSync, existsSync } from 'fs'
+import { writeFileSync, mkdirSync, existsSync, readFileSync, readdirSync } from 'fs'
 import { join } from 'path'
-import { randomUUID } from 'crypto'
+import { createHash } from 'crypto'
 import type { ToolDefinition } from './registry'
 
 const InputSchema = z.object({
@@ -18,11 +29,20 @@ const InputSchema = z.object({
 const OutputSchema = z.object({
   id: z.string(),
   path: z.string(),
-  created: z.boolean()
+  created: z.boolean(),
+  reconciled: z.boolean().optional()
 })
 
 type Input = z.infer<typeof InputSchema>
 type Output = z.infer<typeof OutputSchema>
+
+/**
+ * Deterministic 8-char ID from title. Same title → same ID → same filename.
+ * This enables reconciliation after ambiguous interruption.
+ */
+function deterministicId(title: string): string {
+  return createHash('sha256').update(title).digest('hex').slice(0, 8)
+}
 
 export const createWorkItemTool: ToolDefinition<Input, Output> = {
   name: 'create_work_item',
@@ -40,13 +60,30 @@ export const createWorkItemTool: ToolDefinition<Input, Output> = {
       mkdirSync(dir, { recursive: true })
     }
 
-    const id = randomUUID().slice(0, 8)
+    const id = deterministicId(input.title)
     const filename = `${id}.json`
     const filepath = join(dir, filename)
 
     // Path containment
     if (!filepath.startsWith(ctx.workspacePath)) {
       throw new Error('Path traversal blocked')
+    }
+
+    // Reconciliation: if file already exists with matching title, don't re-create
+    if (existsSync(filepath)) {
+      try {
+        const existing = JSON.parse(readFileSync(filepath, 'utf-8'))
+        if (existing.title === input.title) {
+          return {
+            id,
+            path: `work-items/${filename}`,
+            created: false,
+            reconciled: true
+          }
+        }
+      } catch {
+        // Corrupt file — overwrite
+      }
     }
 
     const workItem = {

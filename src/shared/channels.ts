@@ -16,6 +16,10 @@ export const IpcChannel = {
   WORKFLOW_INTERRUPTED: 'workflow:interrupted',
   WORKFLOW_RESUME: 'workflow:resume',
 
+  // Failure Lab
+  FAULT_ARM: 'fault:arm',
+  FAULT_LIST: 'fault:list',
+
   // Push (main → renderer)
   WORKFLOW_EVENT: 'workflow:event'
 } as const
