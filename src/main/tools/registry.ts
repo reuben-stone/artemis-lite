@@ -4,6 +4,8 @@
  */
 import { z } from 'zod'
 import type { ToolDescription } from '../model/types'
+import { listWorkspaceFilesTool } from './list_workspace_files'
+import { createWorkItemTool } from './create_work_item'
 
 // ── Tool contract ──────────────────────────────────────────────────
 
@@ -79,10 +81,6 @@ function zodToJsonHint(schema: z.ZodType): Record<string, unknown> {
 
 export function createDefaultRegistry(): ToolRegistry {
   const registry: ToolRegistry = new Map()
-
-  // Re-export from tool files
-  const { listWorkspaceFilesTool } = require('./list_workspace_files')
-  const { createWorkItemTool } = require('./create_work_item')
 
   registry.set(listWorkspaceFilesTool.name, listWorkspaceFilesTool)
   registry.set(createWorkItemTool.name, createWorkItemTool)
