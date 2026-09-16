@@ -8,6 +8,7 @@ interface Props {
   traceEvents: TraceEvent[]
   steps: WorkflowStep[]
   usage: UsageData | null
+  contextPackets: any[]
 }
 
 const TABS: { id: InspectorTab; label: string }[] = [
@@ -18,7 +19,7 @@ const TABS: { id: InspectorTab; label: string }[] = [
   { id: 'faults', label: 'Faults' }
 ]
 
-export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usage }: Props) {
+export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usage, contextPackets }: Props) {
   return (
     <div className="inspector">
       <div className="tab-bar" role="tablist">
@@ -44,7 +45,7 @@ export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usag
         ) : tab === 'trace' ? (
           <TraceView events={traceEvents} />
         ) : tab === 'context' ? (
-          <ContextView />
+          <ContextView packets={contextPackets} />
         ) : tab === 'state' ? (
           <StateView workflow={workflow} steps={steps} />
         ) : tab === 'usage' ? (
@@ -99,13 +100,104 @@ function TraceView({ events }: { events: TraceEvent[] }) {
 
 // ── Context ────────────────────────────────────────────────────────
 
-function ContextView() {
+function ContextView({ packets }: { packets: any[] }) {
+  if (packets.length === 0) {
+    return (
+      <div>
+        <div className="section-label">Context</div>
+        <p className="empty-state-text" style={{ padding: '16px 0' }}>
+          Context composition will appear after model calls execute.
+        </p>
+      </div>
+    )
+  }
+
   return (
     <div>
-      <div className="section-label">Context Composition</div>
-      <p className="empty-state-text" style={{ padding: '16px 0' }}>
-        Context inspection will be available when retrieval and memory are implemented.
-      </p>
+      {packets.map((packet: any, idx: number) => {
+        let comp: any
+        try { comp = typeof packet.composition === 'string' ? JSON.parse(packet.composition) : packet.composition }
+        catch { return null }
+
+        const items = comp.items ?? []
+        const excluded = comp.excluded ?? []
+        const budget = comp.budget ?? {}
+
+        return (
+          <div key={packet.id ?? idx} style={{ marginBottom: 20 }}>
+            <div className="section-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <span>Context / {packet.phase}</span>
+              <span>{packet.estimatedTokens?.toLocaleString()} est tokens</span>
+            </div>
+
+            {/* Budget bar */}
+            {budget.limit && (
+              <div style={{ marginBottom: 8 }}>
+                <div style={{
+                  height: 4, borderRadius: 2, background: 'var(--border-subtle)',
+                  overflow: 'hidden', marginBottom: 4
+                }}>
+                  <div style={{
+                    height: '100%', borderRadius: 2,
+                    background: (budget.used / budget.limit) > 0.85 ? 'var(--status-warning)' : 'var(--accent)',
+                    width: `${Math.min(100, (budget.used / budget.limit) * 100)}%`
+                  }} />
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text-muted)' }}>
+                  <span>{budget.used?.toLocaleString()} / {budget.limit?.toLocaleString()}</span>
+                  <span>{budget.remaining?.toLocaleString()} remaining</span>
+                </div>
+              </div>
+            )}
+
+            {/* Provider tokens vs estimated */}
+            {packet.providerInputTokens != null && (
+              <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text-muted)', marginBottom: 8 }}>
+                Provider: {packet.providerInputTokens.toLocaleString()} input tokens
+              </div>
+            )}
+
+            {/* Included items */}
+            {items.map((item: any, i: number) => (
+              <div key={i} className="context-row">
+                <span className="context-row-label" style={{ display: 'flex', flexDirection: 'column' }}>
+                  <span>{item.identifier}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    {item.reason}
+                    {item.truncated && ' [truncated]'}
+                  </span>
+                </span>
+                <span className="context-row-value">{item.estimatedTokens?.toLocaleString()}</span>
+              </div>
+            ))}
+
+            {/* Total */}
+            <div className="context-total">
+              <span>Total estimated</span>
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 11 }}>{packet.estimatedTokens?.toLocaleString()}</span>
+            </div>
+
+            {/* Excluded */}
+            {excluded.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 4 }}>
+                  Excluded ({excluded.length})
+                </div>
+                {excluded.slice(0, 10).map((ex: any, i: number) => (
+                  <div key={i} style={{ fontSize: 11, color: 'var(--text-muted)', padding: '2px 0' }}>
+                    {ex.identifier} <span style={{ opacity: 0.6 }}>{ex.reason}</span>
+                  </div>
+                ))}
+                {excluded.length > 10 && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', opacity: 0.6 }}>
+                    +{excluded.length - 10} more
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )
+      })}
     </div>
   )
 }

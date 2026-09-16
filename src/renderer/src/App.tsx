@@ -85,6 +85,7 @@ export function App() {
   const [traceEvents, setTraceEvents] = useState<TraceEvent[]>([])
   const [steps, setSteps] = useState<WorkflowStep[]>([])
   const [usage, setUsage] = useState<UsageData | null>(null)
+  const [contextPackets, setContextPackets] = useState<any[]>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalData | null>(null)
   const [busy, setBusy] = useState(false)
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null)
@@ -170,14 +171,16 @@ export function App() {
   }, [])
 
   const refreshWorkflowData = useCallback(async (wfId: string) => {
-    const [traceResult, detailResult, usageResult] = await Promise.all([
+    const [traceResult, detailResult, usageResult, contextResult] = await Promise.all([
       window.artemis.workflows.trace({ workflowId: wfId }),
       window.artemis.workflows.get({ workflowId: wfId }),
-      window.artemis.workflows.usage({ workflowId: wfId })
+      window.artemis.workflows.usage({ workflowId: wfId }),
+      window.artemis.workflows.context({ workflowId: wfId })
     ])
     setTraceEvents(traceResult.events)
     setSteps(detailResult.steps ?? [])
     setUsage(usageResult.usage)
+    setContextPackets(contextResult.packets ?? [])
   }, [])
 
   // Refresh when selecting a workflow
@@ -274,6 +277,7 @@ export function App() {
             traceEvents={traceEvents}
             steps={steps}
             usage={usage}
+            contextPackets={contextPackets}
           />
         </aside>
       </div>

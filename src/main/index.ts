@@ -13,7 +13,7 @@ import {
 import type { RendererEvent } from '../shared/ipc'
 import {
   listWorkflows, getWorkflow, listSteps,
-  listTraceEvents, getWorkflowUsage, listPendingApprovals,
+  listTraceEvents, getWorkflowUsage, listPendingApprovals, listContextPackets,
   createProject, getProject, listProjects, removeProject,
   getActiveProject, getActiveProjectId, setActiveProjectId,
   getProjectByPath
@@ -254,6 +254,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IpcChannel.WORKFLOW_USAGE, async (_event, raw: unknown) => {
     const input = GetWorkflowInput.parse(raw)
     return { workflowId: input.workflowId, usage: getWorkflowUsage(input.workflowId) }
+  })
+
+  ipcMain.handle(IpcChannel.WORKFLOW_CONTEXT, async (_event, raw: unknown) => {
+    const input = GetWorkflowInput.parse(raw)
+    return { workflowId: input.workflowId, packets: listContextPackets(input.workflowId) }
   })
 
   ipcMain.handle(IpcChannel.APPROVAL_RESOLVE, async (_event, raw: unknown) => {

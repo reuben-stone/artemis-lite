@@ -39,6 +39,8 @@ const api = {
       ipcRenderer.invoke(IpcChannel.WORKFLOW_TRACE, input),
     usage: (input: GetWorkflowInput) =>
       ipcRenderer.invoke(IpcChannel.WORKFLOW_USAGE, input),
+    context: (input: GetWorkflowInput) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_CONTEXT, input),
     interrupted: () =>
       ipcRenderer.invoke(IpcChannel.WORKFLOW_INTERRUPTED),
     resume: (input: GetWorkflowInput) =>

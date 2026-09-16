@@ -3,6 +3,7 @@
  * No SDK types leak into orchestration.
  */
 import { z } from 'zod'
+import type { ContextPacket } from '../context/types'
 
 // ── Usage ──────────────────────────────────────────────────────────
 
@@ -61,12 +62,14 @@ export interface PlanRequest {
   goal: string
   workspacePath: string
   tools: ToolDescription[]
+  context?: ContextPacket
 }
 
 export interface VerifyRequest {
   goal: string
   plan: PlanOutput
   stepResults: Record<string, unknown>
+  context?: ContextPacket
 }
 
 export interface ModelProvider {

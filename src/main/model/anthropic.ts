@@ -7,7 +7,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import {
   PlanSchema, VerificationSchema,
   type ModelProvider, type ModelResult, type PlanOutput, type VerificationOutput,
-  type PlanRequest, type VerifyRequest, type ToolDescription
+  type PlanRequest, type VerifyRequest
 } from './types'
 
 // ── Pricing (USD per million tokens) ───────────────────────────────
@@ -24,32 +24,38 @@ function estimateCost(model: string, inputTokens: number, outputTokens: number):
   return (inputTokens * rates.input + outputTokens * rates.output) / 1_000_000
 }
 
-// ── Adapter ────────────────────────────────────────────────────────
+// ── Render context packet into prompt sections ─────────────────────
 
-export class AnthropicProvider implements ModelProvider {
-  private client: Anthropic
-  private model: string
+function renderContextForPlan(request: PlanRequest): { system: string; user: string } {
+  const sections: string[] = []
 
-  constructor(apiKey: string, model = 'claude-sonnet-4-5-20241022') {
-    this.client = new Anthropic({ apiKey })
-    this.model = model
-  }
+  sections.push('You are a workflow planner. Given a goal, available context and tools, produce a structured execution plan as JSON.')
 
-  async generatePlan(request: PlanRequest): Promise<ModelResult<PlanOutput>> {
+  // Include repository evidence from context packet
+  if (request.context) {
+    const repoItems = request.context.items.filter(i => i.source === 'file')
+    if (repoItems.length > 0) {
+      sections.push('REPOSITORY EVIDENCE:')
+      for (const item of repoItems) {
+        sections.push(item.content)
+      }
+    }
+
+    // Tool definitions from context
+    const toolItems = request.context.items.filter(i => i.source === 'tool_definitions')
+    if (toolItems.length > 0) {
+      sections.push('AVAILABLE TOOLS:')
+      sections.push(toolItems[0].content)
+    }
+  } else {
+    // Fallback: render tools from request
     const toolList = request.tools.map(t =>
       `- ${t.name} (${t.mode}): ${t.description}`
     ).join('\n')
+    sections.push(`Available tools:\n${toolList}`)
+  }
 
-    const start = Date.now()
-    const response = await this.client.messages.create({
-      model: this.model,
-      max_tokens: 1024,
-      system: `You are a workflow planner. Given a goal and available tools, produce a structured execution plan as JSON.
-
-Available tools:
-${toolList}
-
-Respond ONLY with valid JSON matching this schema:
+  sections.push(`Respond ONLY with valid JSON matching this schema:
 {
   "summary": "brief description of the plan (max 500 chars)",
   "steps": [
@@ -69,8 +75,64 @@ Rules:
 - Only reference tools from the available list.
 - For write/side-effecting tools, include them — the system will handle approval.
 - Do not include steps that require tools not in the list.
-- Return ONLY the JSON object, no markdown fences or explanation.`,
-      messages: [{ role: 'user', content: request.goal }]
+- Return ONLY the JSON object, no markdown fences or explanation.`)
+
+  // Build user message with context
+  const userParts: string[] = []
+  userParts.push(`GOAL: ${request.goal}`)
+
+  if (request.context) {
+    const stateItems = request.context.items.filter(i => i.source === 'workflow_state')
+    if (stateItems.length > 0) {
+      userParts.push(`WORKFLOW STATE:\n${stateItems[0].content}`)
+    }
+  }
+
+  return {
+    system: sections.join('\n\n'),
+    user: userParts.join('\n\n')
+  }
+}
+
+function renderContextForVerify(request: VerifyRequest): { system: string; user: string } {
+  const system = `You are a workflow verifier. Given the original goal, the execution plan, and the results of each step, determine whether the goal has been achieved.
+
+Respond ONLY with valid JSON:
+{
+  "pass": true or false,
+  "reason": "brief explanation (max 500 chars)"
+}
+
+Return ONLY the JSON object, no markdown fences or explanation.`
+
+  const userParts: string[] = []
+  userParts.push(`Goal: ${request.goal}`)
+  userParts.push(`Plan: ${JSON.stringify(request.plan, null, 2)}`)
+  userParts.push(`Step results: ${JSON.stringify(request.stepResults, null, 2)}`)
+
+  return { system, user: userParts.join('\n\n') }
+}
+
+// ── Adapter ────────────────────────────────────────────────────────
+
+export class AnthropicProvider implements ModelProvider {
+  private client: Anthropic
+  private model: string
+
+  constructor(apiKey: string, model = 'claude-sonnet-4-5-20241022') {
+    this.client = new Anthropic({ apiKey })
+    this.model = model
+  }
+
+  async generatePlan(request: PlanRequest): Promise<ModelResult<PlanOutput>> {
+    const { system, user } = renderContextForPlan(request)
+
+    const start = Date.now()
+    const response = await this.client.messages.create({
+      model: this.model,
+      max_tokens: 1024,
+      system,
+      messages: [{ role: 'user', content: user }]
     })
     const latencyMs = Date.now() - start
 
@@ -92,27 +154,14 @@ Rules:
   }
 
   async generateVerification(request: VerifyRequest): Promise<ModelResult<VerificationOutput>> {
+    const { system, user } = renderContextForVerify(request)
+
     const start = Date.now()
     const response = await this.client.messages.create({
       model: this.model,
       max_tokens: 512,
-      system: `You are a workflow verifier. Given the original goal, the execution plan, and the results of each step, determine whether the goal has been achieved.
-
-Respond ONLY with valid JSON:
-{
-  "pass": true or false,
-  "reason": "brief explanation (max 500 chars)"
-}
-
-Return ONLY the JSON object, no markdown fences or explanation.`,
-      messages: [{
-        role: 'user',
-        content: `Goal: ${request.goal}
-
-Plan: ${JSON.stringify(request.plan, null, 2)}
-
-Step results: ${JSON.stringify(request.stepResults, null, 2)}`
-      }]
+      system,
+      messages: [{ role: 'user', content: user }]
     })
     const latencyMs = Date.now() - start
 

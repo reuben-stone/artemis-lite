@@ -192,6 +192,20 @@ function initDb(d: Database.Database): void {
       FOREIGN KEY (workflowId) REFERENCES workflows(id)
     );
 
+    CREATE TABLE IF NOT EXISTS context_packets (
+      id TEXT PRIMARY KEY,
+      workflowId TEXT NOT NULL,
+      stepId TEXT,
+      phase TEXT NOT NULL,
+      composition TEXT NOT NULL,
+      estimatedTokens INTEGER NOT NULL,
+      providerInputTokens INTEGER,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (workflowId) REFERENCES workflows(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_context_workflow ON context_packets(workflowId);
+
     CREATE TABLE IF NOT EXISTS idempotency_ledger (
       key TEXT PRIMARY KEY,
       status TEXT NOT NULL DEFAULT 'pending',
@@ -501,4 +515,37 @@ export function getWorkflowUsage(workflowId: string): { modelCalls: number; inpu
     retries: retries.c,
     durationMs
   }
+}
+
+// ── Context packets ────────────────────────────────────────────────
+
+export interface ContextPacketRow {
+  id: string
+  workflowId: string
+  stepId: string | null
+  phase: string
+  composition: string   // JSON
+  estimatedTokens: number
+  providerInputTokens: number | null
+  createdAt: string
+}
+
+export function appendContextPacket(fields: Omit<ContextPacketRow, 'id'>): ContextPacketRow {
+  const d = getDb()
+  const row = { ...fields, id: randomUUID() }
+  d.prepare(`
+    INSERT INTO context_packets (id, workflowId, stepId, phase, composition, estimatedTokens, providerInputTokens, createdAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(row.id, row.workflowId, row.stepId, row.phase, row.composition, row.estimatedTokens, row.providerInputTokens, row.createdAt)
+  return row
+}
+
+export function updateContextPacketProviderTokens(id: string, providerInputTokens: number): void {
+  getDb().prepare('UPDATE context_packets SET providerInputTokens = ? WHERE id = ?')
+    .run(providerInputTokens, id)
+}
+
+export function listContextPackets(workflowId: string): ContextPacketRow[] {
+  return getDb().prepare('SELECT * FROM context_packets WHERE workflowId = ? ORDER BY createdAt')
+    .all(workflowId) as ContextPacketRow[]
 }

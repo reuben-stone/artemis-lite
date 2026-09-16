@@ -10,11 +10,15 @@ import {
   createStep, updateStep, listSteps,
   appendTrace, createApproval, resolveApproval, getApprovalForStep,
   checkIdempotency, markIdempotencyPending, markIdempotencyComplete,
-  idempotencyKey, appendUsage, getWorkflowUsage, listPendingApprovals
+  idempotencyKey, appendUsage, getWorkflowUsage, listPendingApprovals,
+  appendContextPacket, updateContextPacketProviderTokens
 } from './store'
 import type { WorkflowRow, StepRow, ApprovalRow } from './store'
 import type { ModelProvider, PlanOutput } from './model/types'
 import { executeTool, getToolDefinitions, type ToolRegistry } from './tools/registry'
+import { buildContext } from './context/builder'
+import { toPersistedItem } from './context/types'
+import type { ContextPacket } from './context/types'
 import type { WorkflowStatus, RendererEvent } from '../shared/ipc'
 import { validateTransition } from './workflow/transitions'
 import {
@@ -96,6 +100,71 @@ function trace(workflowId: string, type: string, extra: Partial<Parameters<typeo
 
 function getFaultInjector(deps: OrchestratorDeps): FaultInjector {
   return deps.faultInjector ?? noOpInjector
+}
+
+// ── Context helper ─────────────────────────────────────────────────
+
+async function buildAndPersistContext(
+  wf: WorkflowRow,
+  stepId: string | null,
+  phase: 'plan' | 'verify',
+  deps: OrchestratorDeps,
+  extra: {
+    currentStep?: { type: string; objective: string }
+    completedSteps?: string[]
+    toolEvidence?: Record<string, unknown>
+  } = {}
+): Promise<ContextPacket> {
+  const packet = await buildContext({
+    workflowId: wf.id,
+    stepId,
+    phase,
+    goal: wf.goal,
+    currentStep: extra.currentStep,
+    workflowState: {
+      status: wf.status,
+      completedSteps: extra.completedSteps ?? []
+    },
+    tools: phase === 'plan' ? getToolDefinitions(deps.tools) : undefined,
+    workspacePath: deps.workspacePath,
+    toolEvidence: extra.toolEvidence
+  })
+
+  // Persist compact representation
+  const composition = {
+    items: packet.items.map(toPersistedItem),
+    excluded: packet.excluded,
+    budget: packet.budget
+  }
+
+  const row = appendContextPacket({
+    workflowId: wf.id,
+    stepId,
+    phase,
+    composition: JSON.stringify(composition),
+    estimatedTokens: packet.estimatedTokens,
+    providerInputTokens: null,
+    createdAt: new Date().toISOString()
+  })
+
+  trace(wf.id, 'context.built', {
+    stepId,
+    status: 'success',
+    metadata: JSON.stringify({
+      phase,
+      estimatedTokens: packet.estimatedTokens,
+      itemCount: packet.items.length,
+      excludedCount: packet.excluded.length,
+      budgetUsed: packet.budget.used,
+      budgetLimit: packet.budget.limit,
+      contextPacketId: row.id
+    })
+  })
+
+  // Attach the row ID so we can update provider tokens later
+  ;(packet as any)._persistedId = row.id
+
+  return packet
 }
 
 // ── Approval management ────────────────────────────────────────────
@@ -455,7 +524,21 @@ async function runVerification(
 
   const verifyStart = Date.now()
   const verifyResult = await callModelWithRetry(wf, 'verify', () =>
-    model.generateVerification({ goal: wf.goal, stepResults, plan }),
+    (async () => {
+      const ctx = await buildAndPersistContext(wf, verifyStep.id, 'verify', deps, {
+        currentStep: { type: 'verify', objective: 'Verify workflow outcome' },
+        completedSteps: existingSteps.filter(s => s.status === 'completed').map(s => s.toolName ?? s.type),
+        toolEvidence: stepResults
+      })
+      const result = await model.generateVerification({
+        goal: wf.goal, stepResults, plan,
+        context: ctx
+      })
+      if ((ctx as any)._persistedId) {
+        updateContextPacketProviderTokens((ctx as any)._persistedId, result.usage.inputTokens)
+      }
+      return result
+    })(),
     fi
   )
   const verifyDuration = Date.now() - verifyStart
@@ -505,7 +588,21 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
 
     const planStart = Date.now()
     const planResult = await callModelWithRetry(wf, 'plan', () =>
-      model.generatePlan({ goal, workspacePath: deps.workspacePath, tools: getToolDefinitions(tools) }),
+      (async () => {
+        const ctx = await buildAndPersistContext(wf, planStep.id, 'plan', deps, {
+          currentStep: { type: 'reason', objective: 'Create execution plan' }
+        })
+        const result = await model.generatePlan({
+          goal, workspacePath: deps.workspacePath,
+          tools: getToolDefinitions(tools),
+          context: ctx
+        })
+        // Update persisted packet with actual provider tokens
+        if ((ctx as any)._persistedId) {
+          updateContextPacketProviderTokens((ctx as any)._persistedId, result.usage.inputTokens)
+        }
+        return result
+      })(),
       fi
     )
     const planDuration = Date.now() - planStart
@@ -620,7 +717,20 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
 
         const planStart = Date.now()
         const planResult = await callModelWithRetry(wf, 'plan', () =>
-          model.generatePlan({ goal: wf.goal, workspacePath: deps.workspacePath, tools: getToolDefinitions(deps.tools) }),
+          (async () => {
+            const ctx = await buildAndPersistContext(wf, planStep.id, 'plan', deps, {
+              currentStep: { type: 'reason', objective: 'Create execution plan' }
+            })
+            const result = await model.generatePlan({
+              goal: wf.goal, workspacePath: deps.workspacePath,
+              tools: getToolDefinitions(deps.tools),
+              context: ctx
+            })
+            if ((ctx as any)._persistedId) {
+              updateContextPacketProviderTokens((ctx as any)._persistedId, result.usage.inputTokens)
+            }
+            return result
+          })(),
           fi
         )
         const planDuration = Date.now() - planStart

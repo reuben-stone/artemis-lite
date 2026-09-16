@@ -9,6 +9,7 @@ export const IpcChannel = {
   WORKFLOW_GET: 'workflow:get',
   WORKFLOW_TRACE: 'workflow:trace',
   WORKFLOW_USAGE: 'workflow:usage',
+  WORKFLOW_CONTEXT: 'workflow:context',
   APPROVAL_RESOLVE: 'approval:resolve',
   APPROVAL_LIST: 'approval:list',
 
