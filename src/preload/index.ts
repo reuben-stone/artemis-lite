@@ -59,6 +59,8 @@ const api = {
   faultLab: {
     arm: (fault: string) =>
       ipcRenderer.invoke(IpcChannel.FAULT_ARM, { fault }),
+    disarm: (fault: string) =>
+      ipcRenderer.invoke(IpcChannel.FAULT_DISARM, { fault }),
     list: () =>
       ipcRenderer.invoke(IpcChannel.FAULT_LIST)
   },

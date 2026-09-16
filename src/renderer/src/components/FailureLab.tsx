@@ -24,8 +24,11 @@ export function FailureLab() {
     window.artemis.faultLab.list().then((r: { armed: string[] }) => setArmed(r.armed))
   }, [])
 
-  const handleArm = async (fault: string) => {
-    const result = await window.artemis.faultLab.arm(fault)
+  const handleToggle = async (fault: string) => {
+    const isCurrentlyArmed = armed.includes(fault)
+    const result = isCurrentlyArmed
+      ? await window.artemis.faultLab.disarm(fault)
+      : await window.artemis.faultLab.arm(fault)
     setArmed(result.armed)
   }
 
@@ -58,7 +61,7 @@ export function FailureLab() {
                     borderColor: isArmed ? 'var(--status-warning)' : undefined,
                     color: isArmed ? 'var(--status-warning)' : undefined
                   }}
-                  onClick={() => handleArm(item.id)}
+                  onClick={() => handleToggle(item.id)}
                 >
                   {isArmed ? '● ' : ''}{item.label}
                   {isArmed && <span style={{ float: 'right', fontSize: 9 }}>ARMED</span>}

@@ -335,6 +335,12 @@ function registerIpcHandlers(): void {
     return { armed: faultInjector.listArmed() }
   })
 
+  ipcMain.handle(IpcChannel.FAULT_DISARM, async (_event, raw: unknown) => {
+    const { fault } = raw as { fault: string }
+    faultInjector.disarm(fault as FaultType)
+    return { armed: faultInjector.listArmed() }
+  })
+
   ipcMain.handle(IpcChannel.FAULT_LIST, async () => {
     return { armed: faultInjector.listArmed() }
   })

@@ -28,6 +28,7 @@ export const IpcChannel = {
 
   // Failure Lab
   FAULT_ARM: 'fault:arm',
+  FAULT_DISARM: 'fault:disarm',
   FAULT_LIST: 'fault:list',
 
   // Push (main → renderer)
