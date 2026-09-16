@@ -22,13 +22,13 @@ function statusLabel(status: string): string {
   return status.replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
 }
 
-function statusMarker(status: string): string {
+function statusColor(status: string): string {
   switch (status) {
-    case 'completed': return '\u2713'
-    case 'failed': return '\u00d7'
-    case 'awaiting_approval': return '!'
-    case 'cancelled': return '\u2014'
-    default: return '\u25cf'
+    case 'completed': return 'var(--status-success)'
+    case 'failed': return 'var(--status-danger)'
+    case 'awaiting_approval': return 'var(--status-warning)'
+    case 'running': case 'planning': case 'executing': case 'verifying': return 'var(--accent)'
+    default: return 'var(--text-muted)'
   }
 }
 
@@ -79,29 +79,28 @@ export function WorkflowRail({ workflows, activeId, onSelect, onDelete, onNew, p
               tabIndex={0}
               onKeyDown={e => { if (e.key === 'Enter') onSelect(w.id) }}
             >
-              <span className="workflow-rail-item-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span>
-                  {statusMarker(w.status)}{' '}
-                  {w.goal.length > 35 ? w.goal.slice(0, 35) + '\u2026' : w.goal}
-                </span>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0, marginTop: 5,
+                  background: statusColor(w.status)
+                }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="workflow-rail-item-title">
+                    {w.goal.length > 40 ? w.goal.slice(0, 40) + '\u2026' : w.goal}
+                  </div>
+                  <div className="workflow-rail-item-meta">
+                    {statusLabel(w.status)} &middot; {formatTime(w.createdAt)}
+                  </div>
+                </div>
                 <button
-                  onClick={e => { e.stopPropagation(); onDelete(w.id) }}
-                  style={{
-                    background: 'none', border: 'none', color: 'var(--text-muted)',
-                    cursor: 'pointer', fontSize: 11, padding: '0 2px', lineHeight: 1,
-                    opacity: 0.5
-                  }}
-                  onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                  onMouseLeave={e => (e.currentTarget.style.opacity = '0.5')}
+                  onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(w.id) }}
+                  className="workflow-delete-btn"
                   title="Delete workflow"
                   aria-label="Delete workflow"
                 >
-                  &#x2715;
+                  &times;
                 </button>
-              </span>
-              <span className="workflow-rail-item-meta">
-                {statusLabel(w.status)} \u00b7 {formatTime(w.createdAt)}
-              </span>
+              </div>
             </div>
           ))
         )}

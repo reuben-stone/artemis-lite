@@ -194,6 +194,23 @@ body {
 }
 
 .workflow-rail-item:hover { background: var(--bg-hover); }
+
+.workflow-delete-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 3px;
+  opacity: 0;
+  flex-shrink: 0;
+  margin-top: 1px;
+  transition: opacity 0.1s;
+}
+.workflow-rail-item:hover .workflow-delete-btn { opacity: 0.5; }
+.workflow-delete-btn:hover { opacity: 1 !important; color: var(--status-danger); }
 .workflow-rail-item[data-selected="true"] {
   background: var(--bg-selected);
   border-color: var(--border-subtle);
