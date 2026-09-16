@@ -13,12 +13,21 @@ import type {
 
 // ── Types ──────────────────────────────────────────────────────────
 
+export interface ProjectRow {
+  id: string
+  name: string
+  path: string              // absolute workspace root (UNIQUE)
+  remote: string | null     // git remote URL
+  createdAt: string
+}
+
 export interface WorkflowRow {
   id: string
   goal: string
   status: WorkflowStatus
   plan: string | null       // JSON
   currentStepId: string | null
+  projectId: string | null  // FK to projects
   createdAt: string
   updatedAt: string
 }
@@ -113,14 +122,29 @@ function getDb(): Database.Database {
 
 function initDb(d: Database.Database): void {
   d.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      path TEXT NOT NULL UNIQUE,
+      remote TEXT,
+      createdAt TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    );
+
     CREATE TABLE IF NOT EXISTS workflows (
       id TEXT PRIMARY KEY,
       goal TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'queued',
       plan TEXT,
       currentStepId TEXT,
+      projectId TEXT,
       createdAt TEXT NOT NULL,
-      updatedAt TEXT NOT NULL
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (projectId) REFERENCES projects(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS workflow_steps (
@@ -195,9 +219,79 @@ function initDb(d: Database.Database): void {
   `)
 }
 
+// ── Project CRUD ──────────────────────────────────────────────────
+
+export function createProject(name: string, path: string, remote?: string | null): ProjectRow {
+  const d = getDb()
+  const row: ProjectRow = {
+    id: randomUUID(),
+    name,
+    path,
+    remote: remote ?? null,
+    createdAt: new Date().toISOString()
+  }
+  d.prepare(`INSERT INTO projects (id, name, path, remote, createdAt) VALUES (?, ?, ?, ?, ?)`)
+    .run(row.id, row.name, row.path, row.remote, row.createdAt)
+  return row
+}
+
+export function getProject(id: string): ProjectRow | undefined {
+  return getDb().prepare('SELECT * FROM projects WHERE id = ?').get(id) as ProjectRow | undefined
+}
+
+export function getProjectByPath(path: string): ProjectRow | undefined {
+  return getDb().prepare('SELECT * FROM projects WHERE path = ?').get(path) as ProjectRow | undefined
+}
+
+export function listProjects(): ProjectRow[] {
+  return getDb().prepare('SELECT * FROM projects ORDER BY createdAt ASC').all() as ProjectRow[]
+}
+
+export function removeProject(id: string): void {
+  const d = getDb()
+  d.prepare('DELETE FROM projects WHERE id = ?').run(id)
+  // If removed project was active, clear active
+  const active = getMetaValue('active_project')
+  if (active === id) {
+    const remaining = listProjects()
+    setMetaValue('active_project', remaining.length > 0 ? remaining[0].id : null)
+  }
+}
+
+// ── Meta (key/value settings) ──────────────────────────────────────
+
+export function getMetaValue(key: string): string | null {
+  const row = getDb().prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined
+  return row?.value ?? null
+}
+
+export function setMetaValue(key: string, value: string | null): void {
+  if (value === null) {
+    getDb().prepare('DELETE FROM meta WHERE key = ?').run(key)
+  } else {
+    getDb().prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)').run(key, value)
+  }
+}
+
+// ── Active project ─────────────────────────────────────────────────
+
+export function getActiveProjectId(): string | null {
+  return getMetaValue('active_project')
+}
+
+export function setActiveProjectId(projectId: string): void {
+  setMetaValue('active_project', projectId)
+}
+
+export function getActiveProject(): ProjectRow | undefined {
+  const id = getActiveProjectId()
+  if (!id) return undefined
+  return getProject(id)
+}
+
 // ── Workflow CRUD ──────────────────────────────────────────────────
 
-export function createWorkflow(goal: string): WorkflowRow {
+export function createWorkflow(goal: string, projectId?: string | null): WorkflowRow {
   const d = getDb()
   const now = new Date().toISOString()
   const row: WorkflowRow = {
@@ -206,13 +300,14 @@ export function createWorkflow(goal: string): WorkflowRow {
     status: 'queued',
     plan: null,
     currentStepId: null,
+    projectId: projectId ?? null,
     createdAt: now,
     updatedAt: now
   }
   d.prepare(`
-    INSERT INTO workflows (id, goal, status, plan, currentStepId, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(row.id, row.goal, row.status, row.plan, row.currentStepId, row.createdAt, row.updatedAt)
+    INSERT INTO workflows (id, goal, status, plan, currentStepId, projectId, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(row.id, row.goal, row.status, row.plan, row.currentStepId, row.projectId, row.createdAt, row.updatedAt)
   return row
 }
 

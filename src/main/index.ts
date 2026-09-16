@@ -1,22 +1,29 @@
-import { app, BrowserWindow, ipcMain, shell, session } from 'electron'
-import { join } from 'path'
+import { app, BrowserWindow, ipcMain, shell, session, dialog } from 'electron'
+import { join, basename } from 'path'
 import {
   IpcChannel,
   StartWorkflowInput,
   CancelWorkflowInput,
   ResolveApprovalInput,
-  GetWorkflowInput
+  GetWorkflowInput,
+  AddProjectInput,
+  RemoveProjectInput,
+  SetActiveProjectInput
 } from '../shared/ipc'
 import type { RendererEvent } from '../shared/ipc'
 import {
   listWorkflows, getWorkflow, listSteps,
-  listTraceEvents, getWorkflowUsage, listPendingApprovals
+  listTraceEvents, getWorkflowUsage, listPendingApprovals,
+  createProject, getProject, listProjects, removeProject,
+  getActiveProject, getActiveProjectId, setActiveProjectId,
+  getProjectByPath
 } from './store'
 import { runWorkflow, resumeWorkflow, discoverInterruptedWorkflows, resolveWorkflowApproval } from './workflow'
 import { AnthropicProvider } from './model/anthropic'
 import { createDefaultRegistry } from './tools/registry'
 import { InjectableFaultInjector, type FaultType } from './fault-injector'
-import { existsSync, mkdirSync } from 'fs'
+import { getGitRemote, getGitStatus } from './git'
+import { existsSync } from 'fs'
 
 let win: BrowserWindow | null = null
 
@@ -87,60 +94,117 @@ function emitToRenderer(event: RendererEvent): void {
   }
 }
 
-// ── Demo workspace ───────────────────────────────────────────────
+// ── Resolve active project workspace ─────────────────────────────
 
-function getDemoWorkspacePath(): string {
-  const p = join(app.getPath('userData'), 'demo-workspace')
-  if (!existsSync(p)) {
-    mkdirSync(p, { recursive: true })
-    // Seed with a sample file
-    const { writeFileSync } = require('fs')
-    writeFileSync(join(p, 'project-notes.md'), `# Project Notes
+function requireActiveProject(): { projectId: string; workspacePath: string } {
+  const project = getActiveProject()
+  if (!project) throw new Error('No active project. Register a repository first.')
+  if (!existsSync(project.path)) throw new Error(`Project path does not exist: ${project.path}`)
+  return { projectId: project.id, workspacePath: project.path }
+}
 
-## Release 1.2
-- Feature: Add user preferences panel
-- Fix: Resolve timeout in data sync
-- Pending: Update API documentation
-
-## Backlog
-- Investigate caching strategy
-- Review error handling in worker module
-- Create onboarding flow for new users
-`)
-    writeFileSync(join(p, 'README.md'), `# Demo Workspace
-
-This is a demo workspace for Artemis Lite workflow testing.
-`)
-  }
-  return p
+function requireApiKey(): string {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set. Export it in your environment before running.')
+  return apiKey
 }
 
 // ── IPC handlers ─────────────────────────────────────────────────
 
 function registerIpcHandlers(): void {
+
+  // ── Project handlers ────────────────────────────────────────────
+
+  ipcMain.handle(IpcChannel.PROJECT_LIST, async () => {
+    const projects = listProjects()
+    const activeId = getActiveProjectId()
+    const results = []
+    for (const p of projects) {
+      const status = await getGitStatus(p.path).catch(() => ({ branch: null, dirty: false }))
+      results.push({
+        id: p.id,
+        name: p.name,
+        path: p.path,
+        remote: p.remote,
+        branch: (status as any).branch ?? null,
+        dirty: (status as any).dirty ?? false,
+        active: p.id === activeId,
+        createdAt: p.createdAt
+      })
+    }
+    return results
+  })
+
+  ipcMain.handle(IpcChannel.PROJECT_ADD, async (_event, raw: unknown) => {
+    const input = AddProjectInput.parse(raw)
+    const path = input.path
+
+    // Check if already registered
+    const existing = getProjectByPath(path)
+    if (existing) {
+      setActiveProjectId(existing.id)
+      return { project: existing, created: false }
+    }
+
+    const name = basename(path)
+    const remote = await getGitRemote(path).catch(() => null)
+    const project = createProject(name, path, remote)
+
+    // Auto-activate if first project
+    if (!getActiveProjectId()) {
+      setActiveProjectId(project.id)
+    }
+
+    return { project, created: true }
+  })
+
+  ipcMain.handle(IpcChannel.PROJECT_REMOVE, async (_event, raw: unknown) => {
+    const input = RemoveProjectInput.parse(raw)
+    removeProject(input.projectId)
+    return { removed: true }
+  })
+
+  ipcMain.handle(IpcChannel.PROJECT_SET_ACTIVE, async (_event, raw: unknown) => {
+    const input = SetActiveProjectInput.parse(raw)
+    const project = getProject(input.projectId)
+    if (!project) throw new Error(`Project ${input.projectId} not found`)
+    setActiveProjectId(input.projectId)
+    return { projectId: input.projectId }
+  })
+
+  ipcMain.handle(IpcChannel.PROJECT_GET_ACTIVE, async () => {
+    const project = getActiveProject()
+    if (!project) return null
+    const status = await getGitStatus(project.path).catch(() => ({ branch: null, dirty: false }))
+    return {
+      id: project.id,
+      name: project.name,
+      path: project.path,
+      remote: project.remote,
+      branch: (status as any).branch ?? null,
+      dirty: (status as any).dirty ?? false,
+      createdAt: project.createdAt
+    }
+  })
+
+  // ── Workflow handlers ───────────────────────────────────────────
+
   ipcMain.handle(IpcChannel.WORKFLOW_START, async (_event, raw: unknown) => {
     const input = StartWorkflowInput.parse(raw)
-
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY not set. Export it in your environment before running.')
-    }
+    const apiKey = requireApiKey()
+    const { projectId, workspacePath } = requireActiveProject()
 
     const model = new AnthropicProvider(apiKey)
     const tools = createDefaultRegistry()
-    const workspacePath = getDemoWorkspacePath()
 
-    const wfPromise = runWorkflow(input.goal, {
+    const wf = await runWorkflow(input.goal, {
       model,
       tools,
       workspacePath,
       emit: emitToRenderer,
       faultInjector
-    })
+    }, projectId)
 
-    // Return immediately with the workflow ID from the first event
-    // The orchestrator will emit events as it progresses
-    const wf = await wfPromise
     return { id: wf.id, goal: wf.goal, status: wf.status }
   })
 
@@ -214,15 +278,27 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.WORKFLOW_RESUME, async (_event, raw: unknown) => {
     const input = GetWorkflowInput.parse(raw)
+    const apiKey = requireApiKey()
 
-    const apiKey = process.env.ANTHROPIC_API_KEY
-    if (!apiKey) {
-      throw new Error('ANTHROPIC_API_KEY not set.')
+    // Resolve the project from the workflow's persisted projectId
+    const wfRow = getWorkflow(input.workflowId)
+    if (!wfRow) throw new Error(`Workflow ${input.workflowId} not found`)
+
+    let workspacePath: string
+    if (wfRow.projectId) {
+      const project = getProject(wfRow.projectId)
+      if (!project) throw new Error(`Project ${wfRow.projectId} no longer exists — cannot recover workflow`)
+      if (!existsSync(project.path)) throw new Error(`Project path does not exist: ${project.path}`)
+      workspacePath = project.path
+    } else {
+      // Legacy workflow without a project — try active project as fallback
+      const active = getActiveProject()
+      if (!active) throw new Error('Workflow has no project and no active project is set')
+      workspacePath = active.path
     }
 
     const model = new AnthropicProvider(apiKey)
     const tools = createDefaultRegistry()
-    const workspacePath = getDemoWorkspacePath()
 
     const wf = await resumeWorkflow(input.workflowId, {
       model,

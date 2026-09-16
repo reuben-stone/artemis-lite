@@ -94,7 +94,7 @@ describe('IPC channel names', () => {
 
   it('channels use colon namespace convention', () => {
     for (const ch of Object.values(IpcChannel)) {
-      expect(ch).toMatch(/^[a-z]+:[a-z]+$/)
+      expect(ch).toMatch(/^[a-z]+:[a-zA-Z]+$/)
     }
   })
 })

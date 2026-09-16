@@ -12,6 +12,13 @@ export const IpcChannel = {
   APPROVAL_RESOLVE: 'approval:resolve',
   APPROVAL_LIST: 'approval:list',
 
+  // Projects
+  PROJECT_LIST: 'project:list',
+  PROJECT_ADD: 'project:add',
+  PROJECT_REMOVE: 'project:remove',
+  PROJECT_SET_ACTIVE: 'project:setActive',
+  PROJECT_GET_ACTIVE: 'project:getActive',
+
   // Recovery
   WORKFLOW_INTERRUPTED: 'workflow:interrupted',
   WORKFLOW_RESUME: 'workflow:resume',

@@ -1,9 +1,10 @@
-import type { WorkflowItem, UsageData } from '../App'
+import type { WorkflowItem, UsageData, ProjectInfo } from '../App'
 
 interface Props {
   workflow: WorkflowItem | null
   usage: UsageData | null
   busy: boolean
+  project: ProjectInfo | null
 }
 
 function formatStatus(status: string): string {
@@ -26,7 +27,7 @@ function formatCost(c: number): string {
   return `$${c.toFixed(3)}`
 }
 
-export function TopBar({ workflow, usage, busy }: Props) {
+export function TopBar({ workflow, usage, busy, project }: Props) {
   const totalTokens = usage ? usage.inputTokens + usage.outputTokens : 0
 
   return (
@@ -37,7 +38,18 @@ export function TopBar({ workflow, usage, busy }: Props) {
         <span className="topbar-product">Lite</span>
       </div>
 
-      <div className="topbar-center" />
+      <div className="topbar-center">
+        {project && (
+          <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>{project.name}</span>
+            {project.branch && (
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+                {project.branch}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
 
       <div className="topbar-right">
         {workflow && usage ? (

@@ -4,6 +4,34 @@
  */
 import { z } from 'zod'
 
+// ── Project types ──────────────────────────────────────────────────────
+
+export const ProjectSummary = z.object({
+  id: z.string(),
+  name: z.string(),
+  path: z.string(),
+  remote: z.string().nullable(),
+  branch: z.string().nullable().optional(),
+  dirty: z.boolean().optional(),
+  createdAt: z.string()
+})
+export type ProjectSummary = z.infer<typeof ProjectSummary>
+
+export const AddProjectInput = z.object({
+  path: z.string().min(1)
+})
+export type AddProjectInput = z.infer<typeof AddProjectInput>
+
+export const RemoveProjectInput = z.object({
+  projectId: z.string().min(1)
+})
+export type RemoveProjectInput = z.infer<typeof RemoveProjectInput>
+
+export const SetActiveProjectInput = z.object({
+  projectId: z.string().min(1)
+})
+export type SetActiveProjectInput = z.infer<typeof SetActiveProjectInput>
+
 // ── Workflow types (shared between main + renderer) ────────────────────
 
 export const WorkflowStatus = z.enum([

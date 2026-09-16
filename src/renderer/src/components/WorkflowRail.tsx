@@ -1,10 +1,12 @@
-import type { WorkflowItem } from '../App'
+import type { WorkflowItem, ProjectInfo } from '../App'
 
 interface Props {
   workflows: WorkflowItem[]
   activeId: string | null
   onSelect: (id: string) => void
   onNew: () => void
+  project: ProjectInfo | null
+  onAddProject: () => void
 }
 
 function formatTime(iso: string): string {
@@ -29,9 +31,31 @@ function statusMarker(status: string): string {
   }
 }
 
-export function WorkflowRail({ workflows, activeId, onSelect, onNew }: Props) {
+export function WorkflowRail({ workflows, activeId, onSelect, onNew, project, onAddProject }: Props) {
   return (
     <div className="workflow-rail">
+      {/* Project section */}
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
+        <div className="section-label" style={{ padding: 0, marginBottom: 4 }}>Project</div>
+        {project ? (
+          <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
+            {project.name}
+            {project.branch && (
+              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)', marginLeft: 6 }}>
+                {project.branch}
+              </span>
+            )}
+            {project.dirty && (
+              <span style={{ fontSize: 10, color: 'var(--status-warning)', marginLeft: 4 }}>modified</span>
+            )}
+          </div>
+        ) : (
+          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={onAddProject}>
+            + Add repository
+          </button>
+        )}
+      </div>
+
       <div className="section-label">Workflows</div>
 
       <div className="workflow-rail-list">

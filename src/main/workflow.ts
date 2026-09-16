@@ -486,11 +486,11 @@ async function runVerification(
 
 // ── Run (new workflow) ─────────────────────────────────────────────
 
-export async function runWorkflow(goal: string, deps: OrchestratorDeps): Promise<WorkflowRow> {
+export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectId?: string | null): Promise<WorkflowRow> {
   const { model, tools, emit } = deps
   const fi = getFaultInjector(deps)
 
-  const wf = createWorkflow(goal)
+  const wf = createWorkflow(goal, projectId)
   trace(wf.id, 'workflow.created', { status: 'start' })
   emit({ type: 'workflow.status', workflowId: wf.id, status: 'queued' })
 

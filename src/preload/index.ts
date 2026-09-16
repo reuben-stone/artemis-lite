@@ -7,10 +7,25 @@ import type {
   CancelWorkflowInput,
   ResolveApprovalInput,
   GetWorkflowInput,
+  AddProjectInput,
+  RemoveProjectInput,
+  SetActiveProjectInput,
   RendererEvent
 } from '../shared/ipc'
 
 const api = {
+  projects: {
+    list: () =>
+      ipcRenderer.invoke(IpcChannel.PROJECT_LIST),
+    add: (input: AddProjectInput) =>
+      ipcRenderer.invoke(IpcChannel.PROJECT_ADD, input),
+    remove: (input: RemoveProjectInput) =>
+      ipcRenderer.invoke(IpcChannel.PROJECT_REMOVE, input),
+    setActive: (input: SetActiveProjectInput) =>
+      ipcRenderer.invoke(IpcChannel.PROJECT_SET_ACTIVE, input),
+    getActive: () =>
+      ipcRenderer.invoke(IpcChannel.PROJECT_GET_ACTIVE)
+  },
   workflows: {
     start: (input: StartWorkflowInput) =>
       ipcRenderer.invoke(IpcChannel.WORKFLOW_START, input),

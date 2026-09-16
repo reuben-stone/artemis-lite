@@ -8,6 +8,17 @@ import { NewWorkflowDialog } from './components/NewWorkflowDialog'
 
 export type InspectorTab = 'trace' | 'context' | 'state' | 'usage' | 'faults'
 
+export interface ProjectInfo {
+  id: string
+  name: string
+  path: string
+  remote: string | null
+  branch: string | null
+  dirty: boolean
+  active?: boolean
+  createdAt: string
+}
+
 export interface WorkflowItem {
   id: string
   goal: string
@@ -76,15 +87,23 @@ export function App() {
   const [usage, setUsage] = useState<UsageData | null>(null)
   const [pendingApproval, setPendingApproval] = useState<ApprovalData | null>(null)
   const [busy, setBusy] = useState(false)
+  const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null)
 
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
 
   const activeWorkflow = workflows.find(w => w.id === activeId) ?? null
 
+  // Load active project
+  const refreshProject = useCallback(async () => {
+    const p = await window.artemis.projects.getActive()
+    setActiveProject(p)
+  }, [])
+
   // Load persisted workflows on mount + discover interrupted
   useEffect(() => {
     async function init() {
+      await refreshProject()
       const list = await window.artemis.workflows.list()
       setWorkflows(list)
 
@@ -216,7 +235,7 @@ export function App() {
 
   return (
     <div className="app-root">
-      <TopBar workflow={activeWorkflow} usage={usage} busy={busy} />
+      <TopBar workflow={activeWorkflow} usage={usage} busy={busy} project={activeProject} />
 
       <div className="app-body">
         <aside className="panel panel-left">
@@ -225,6 +244,16 @@ export function App() {
             activeId={activeId}
             onSelect={setActiveId}
             onNew={() => setShowNewDialog(true)}
+            project={activeProject}
+            onAddProject={async () => {
+              // Use a simple prompt for now — Phase 2 keeps UI minimal
+              // In Electron, we'd use dialog.showOpenDialog via IPC
+              const path = prompt('Enter repository path:')
+              if (path) {
+                await window.artemis.projects.add({ path })
+                await refreshProject()
+              }
+            }}
           />
         </aside>
 
