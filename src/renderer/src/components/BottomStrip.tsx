@@ -4,10 +4,13 @@ interface Props {
 
 export function BottomStrip({ message }: Props) {
   const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const isError = message?.toLowerCase().startsWith('error') || message?.toLowerCase().startsWith('failed')
 
   return (
     <div className="bottom-strip">
-      <span>{message ?? 'Ready'}</span>
+      <span style={isError ? { color: 'var(--status-danger)' } : undefined}>
+        {message ?? 'Ready'}
+      </span>
       <span>{now}</span>
     </div>
   )
