@@ -25,14 +25,17 @@ function createWindow(): void {
     }
   })
 
-  // CSP — restrictive; no remote scripts, no eval, no inline scripts
+  // CSP — restrictive in production, relaxed in dev for Vite HMR
+  const isDev = !!process.env.ELECTRON_RENDERER_URL
+  const csp = isDev
+    ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: http: https:"
+    : "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; connect-src 'self'"
+
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [
-          "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'; connect-src 'self'"
-        ]
+        'Content-Security-Policy': [csp]
       }
     })
   })
