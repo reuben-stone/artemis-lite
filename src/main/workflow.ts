@@ -259,20 +259,42 @@ async function executeToolStep(
     // Try to reconcile — execute returns existing artifact if found
   }
 
-  // Execute with retry
+  // Execute with retry.
+  // Retry is only safe BEFORE a side effect has occurred.
+  // After executeTool() returns, the side effect is done — any subsequent
+  // failure is an ambiguous-completion case, not a reason to re-execute.
+  if (!existing) {
+    markIdempotencyPending(idemKey)
+  }
+
   for (let attempt = 0; attempt <= RETRY_CONFIG.maxAttempts; attempt++) {
     try {
-      if (attempt === 0 && !existing) {
-        markIdempotencyPending(idemKey)
-      }
       emit({ type: 'tool.started', workflowId: wf.id, stepId: step.id, toolName })
 
       const toolStart = Date.now()
       const toolResult = await executeTool(tools, toolName, toolArgs, { workspacePath })
       const toolDuration = Date.now() - toolStart
 
-      // Fault injection point: after side effect, before idempotency completion
-      await fi.afterToolSideEffect(step.id, toolName)
+      // Side effect has now occurred. From this point, failures are
+      // ambiguous-completion — we must NOT retry the tool call.
+      try {
+        await fi.afterToolSideEffect(step.id, toolName)
+      } catch (postErr) {
+        // The side effect succeeded but something failed after it.
+        // For write tools: complete the idempotency record with the
+        // successful result, then propagate the error. On recovery,
+        // the completed ledger entry prevents re-execution.
+        if (toolDef.mode === 'write') {
+          markIdempotencyComplete(idemKey, toolResult)
+          trace(wf.id, 'tool.completed_before_fault', {
+            stepId: step.id, toolName, status: 'success',
+            durationMs: toolDuration,
+            metadata: JSON.stringify({ note: 'side_effect_completed_fault_occurred_after' })
+          })
+        }
+        // For read tools: no side effect to protect, safe to propagate
+        throw postErr
+      }
 
       markIdempotencyComplete(idemKey, toolResult)
       trace(wf.id, 'tool.completed', {
@@ -295,13 +317,31 @@ async function executeToolStep(
 
       if (isInterruptError(err)) throw err
 
-      trace(wf.id, attempt < RETRY_CONFIG.maxAttempts && isTransientError(err) ? 'tool.retry' : 'tool.failed', {
+      // Only retry if the error occurred BEFORE the side effect.
+      // If the idempotency ledger is already 'completed', we recorded
+      // the result above — do not retry.
+      const ledgerNow = checkIdempotency(idemKey)
+      if (ledgerNow?.status === 'completed') {
+        // Side effect happened and was recorded. Return stored result.
+        trace(wf.id, 'tool.ambiguous_resolved', {
+          stepId: step.id, toolName, status: 'success',
+          metadata: JSON.stringify({ resolution: 'ledger_completed_after_post_fault' })
+        })
+        return JSON.parse(ledgerNow.result!)
+      }
+
+      // Retry is safe for read tools (no side effect) or if the tool
+      // has not yet executed (transient pre-execution failure).
+      const canRetry = isTransientError(err) && attempt < RETRY_CONFIG.maxAttempts
+        && toolDef.mode === 'read'
+
+      trace(wf.id, canRetry ? 'tool.retry' : 'tool.failed', {
         stepId: step.id, toolName, status: 'failure',
         errorCode: errMsg, retry: attempt,
         metadata: isInjected ? JSON.stringify({ source: 'fault_injection' }) : null
       })
 
-      if (isTransientError(err) && attempt < RETRY_CONFIG.maxAttempts) {
+      if (canRetry) {
         await sleep(RETRY_CONFIG.backoffMs[attempt])
         continue
       }

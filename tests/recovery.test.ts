@@ -152,10 +152,10 @@ describe('Recovery: idempotency prevents duplicate writes', () => {
     const step = createStep(wf.id, 'tool', 'create_work_item')
 
     const key1 = idempotencyKey(wf.id, step.id, 'create_work_item')
-    // If attempt were in the key, a retry would get a different key.
-    // Verify the key format is workflowId:stepId:toolName (no attempt)
+    // Key format is exactly workflowId:stepId:toolName (no attempt)
     expect(key1).toBe(`${wf.id}:${step.id}:create_work_item`)
-    expect(key1).not.toContain(':1') // No attempt suffix
+    // Verify exactly 3 segments (no 4th attempt segment)
+    expect(key1.split(':').length).toBe(3)
   })
 
   it('completed idempotency record prevents a second execution attempt', () => {
