@@ -1,0 +1,43 @@
+import { contextBridge, ipcRenderer } from 'electron'
+import { IpcChannel } from '../shared/ipc'
+import type {
+  StartWorkflowInput,
+  CancelWorkflowInput,
+  ResolveApprovalInput,
+  GetWorkflowInput,
+  RendererEvent
+} from '../shared/ipc'
+
+const api = {
+  workflows: {
+    start: (input: StartWorkflowInput) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_START, input),
+    cancel: (input: CancelWorkflowInput) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_CANCEL, input),
+    list: () =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_LIST),
+    get: (input: GetWorkflowInput) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_GET, input),
+    trace: (input: GetWorkflowInput) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_TRACE, input),
+    usage: (input: GetWorkflowInput) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_USAGE, input)
+  },
+  approvals: {
+    resolve: (input: ResolveApprovalInput) =>
+      ipcRenderer.invoke(IpcChannel.APPROVAL_RESOLVE, input),
+    list: () =>
+      ipcRenderer.invoke(IpcChannel.APPROVAL_LIST)
+  },
+  events: {
+    onWorkflowEvent: (callback: (event: RendererEvent) => void) => {
+      const handler = (_: Electron.IpcRendererEvent, data: RendererEvent) => callback(data)
+      ipcRenderer.on(IpcChannel.WORKFLOW_EVENT, handler)
+      return () => { ipcRenderer.removeListener(IpcChannel.WORKFLOW_EVENT, handler) }
+    }
+  }
+}
+
+contextBridge.exposeInMainWorld('artemis', api)
+
+export type ArtemisAPI = typeof api

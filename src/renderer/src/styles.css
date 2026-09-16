@@ -1,0 +1,233 @@
+/* ── Tokens ─────────────────────────────────────────────────────── */
+:root {
+  --bg:           #111215;
+  --surface:      #18191d;
+  --surface-alt:  #1e2024;
+  --border:       #2a2c31;
+  --text:         #d4d4d8;
+  --text-muted:   #71717a;
+  --accent:       #3b82f6;
+  --accent-dim:   #1e3a5f;
+  --mono:         'SF Mono', 'Cascadia Code', 'Fira Code', ui-monospace, monospace;
+  --sans:         'Inter', -apple-system, system-ui, sans-serif;
+  --radius:       4px;
+}
+
+/* ── Reset ──────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body, #root { height: 100%; }
+
+body {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────── */
+.app-root {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 38px;
+  padding: 0 16px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+.titlebar-title {
+  font-weight: 600;
+  font-size: 12px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.titlebar-meta {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  -webkit-app-region: no-drag;
+}
+
+.app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+.panel-left {
+  width: 260px;
+  border-right: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.panel-center {
+  flex: 1;
+  background: var(--bg);
+}
+
+.panel-right {
+  width: 300px;
+  border-left: 1px solid var(--border);
+  background: var(--surface);
+}
+
+/* ── Section titles ─────────────────────────────────────────────── */
+.section-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+/* ── Composer ───────────────────────────────────────────────────── */
+.composer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.composer-input {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface-alt);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px;
+  resize: none;
+  outline: none;
+}
+
+.composer-input:focus {
+  border-color: var(--accent);
+}
+
+/* ── Buttons ────────────────────────────────────────────────────── */
+.btn {
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn:hover { background: var(--border); }
+.btn:disabled { opacity: 0.4; cursor: default; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn-primary:hover { opacity: 0.9; }
+
+/* ── Tabs ───────────────────────────────────────────────────────── */
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+}
+
+.tab {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 6px 12px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tab:hover { color: var(--text); }
+
+.tab-active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Workflow panel ─────────────────────────────────────────────── */
+.workflow-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.workflow-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-id {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface-alt);
+  padding: 2px 6px;
+  border-radius: var(--radius);
+}
+
+.workflow-body { flex: 1; }
+
+.empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+/* ── Inspector ──────────────────────────────────────────────────── */
+.inspector-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.inspector-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* ── Utility ────────────────────────────────────────────────────── */
+.muted { color: var(--text-muted); font-size: 12px; }
+
+/* ── Focus ──────────────────────────────────────────────────────── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Scrollbar ──────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
