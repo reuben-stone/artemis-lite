@@ -1,5 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import { IpcChannel } from '../shared/ipc'
+import { IpcChannel } from '../shared/channels'
+
+// Type-only imports — stripped at compile time, no runtime zod dependency
 import type {
   StartWorkflowInput,
   CancelWorkflowInput,

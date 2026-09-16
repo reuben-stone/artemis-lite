@@ -178,23 +178,6 @@ export const RendererEvent = z.discriminatedUnion('type', [
 ])
 export type RendererEvent = z.infer<typeof RendererEvent>
 
-// ── Channel names (single source of truth) ─────────────────────────────
+// ── Channel names (re-exported from dependency-free module) ────────────
 
-export const IpcChannel = {
-  // Invoke (renderer → main → response)
-  WORKFLOW_START: 'workflow:start',
-  WORKFLOW_CANCEL: 'workflow:cancel',
-  WORKFLOW_LIST: 'workflow:list',
-  WORKFLOW_GET: 'workflow:get',
-  WORKFLOW_TRACE: 'workflow:trace',
-  WORKFLOW_USAGE: 'workflow:usage',
-  APPROVAL_RESOLVE: 'approval:resolve',
-  APPROVAL_LIST: 'approval:list',
-
-  // Recovery
-  WORKFLOW_INTERRUPTED: 'workflow:interrupted',
-  WORKFLOW_RESUME: 'workflow:resume',
-
-  // Push (main → renderer)
-  WORKFLOW_EVENT: 'workflow:event'
-} as const
+export { IpcChannel } from './channels'
