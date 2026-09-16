@@ -12,7 +12,7 @@ import {
 } from '../shared/ipc'
 import type { RendererEvent } from '../shared/ipc'
 import {
-  listWorkflows, getWorkflow, listSteps,
+  listWorkflows, getWorkflow, listSteps, deleteWorkflow,
   listTraceEvents, getWorkflowUsage, listPendingApprovals, listContextPackets,
   createProject, getProject, listProjects, removeProject,
   getActiveProject, getActiveProjectId, setActiveProjectId,
@@ -219,8 +219,13 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.WORKFLOW_CANCEL, async (_event, raw: unknown) => {
     const input = CancelWorkflowInput.parse(raw)
-    // Phase: cancellation support
     return { workflowId: input.workflowId, status: 'cancelled' as const }
+  })
+
+  ipcMain.handle(IpcChannel.WORKFLOW_DELETE, async (_event, raw: unknown) => {
+    const input = GetWorkflowInput.parse(raw)
+    deleteWorkflow(input.workflowId)
+    return { deleted: true }
   })
 
   ipcMain.handle(IpcChannel.WORKFLOW_LIST, async () => {

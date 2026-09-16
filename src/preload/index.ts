@@ -33,6 +33,8 @@ const api = {
       ipcRenderer.invoke(IpcChannel.WORKFLOW_START, input),
     cancel: (input: CancelWorkflowInput) =>
       ipcRenderer.invoke(IpcChannel.WORKFLOW_CANCEL, input),
+    delete: (input: GetWorkflowInput) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_DELETE, input),
     list: () =>
       ipcRenderer.invoke(IpcChannel.WORKFLOW_LIST),
     get: (input: GetWorkflowInput) =>

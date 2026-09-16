@@ -339,6 +339,16 @@ export function listNonTerminalWorkflows(): WorkflowRow[] {
   ).all() as WorkflowRow[]
 }
 
+export function deleteWorkflow(id: string): void {
+  const d = getDb()
+  d.prepare('DELETE FROM context_packets WHERE workflowId = ?').run(id)
+  d.prepare('DELETE FROM usage_records WHERE workflowId = ?').run(id)
+  d.prepare('DELETE FROM trace_events WHERE workflowId = ?').run(id)
+  d.prepare('DELETE FROM approvals WHERE workflowId = ?').run(id)
+  d.prepare('DELETE FROM workflow_steps WHERE workflowId = ?').run(id)
+  d.prepare('DELETE FROM workflows WHERE id = ?').run(id)
+}
+
 export function updateWorkflow(id: string, fields: Partial<Pick<WorkflowRow, 'status' | 'plan' | 'currentStepId'>>): void {
   const d = getDb()
   const sets: string[] = ['updatedAt = ?']

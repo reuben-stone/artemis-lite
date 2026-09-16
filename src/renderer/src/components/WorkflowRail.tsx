@@ -4,6 +4,7 @@ interface Props {
   workflows: WorkflowItem[]
   activeId: string | null
   onSelect: (id: string) => void
+  onDelete: (id: string) => void
   onNew: () => void
   project: ProjectInfo | null
   onAddProject: () => void
@@ -31,7 +32,7 @@ function statusMarker(status: string): string {
   }
 }
 
-export function WorkflowRail({ workflows, activeId, onSelect, onNew, project, onAddProject }: Props) {
+export function WorkflowRail({ workflows, activeId, onSelect, onDelete, onNew, project, onAddProject }: Props) {
   return (
     <div className="workflow-rail">
       {/* Project section */}
@@ -78,9 +79,25 @@ export function WorkflowRail({ workflows, activeId, onSelect, onNew, project, on
               tabIndex={0}
               onKeyDown={e => { if (e.key === 'Enter') onSelect(w.id) }}
             >
-              <span className="workflow-rail-item-title">
-                {statusMarker(w.status)}{' '}
-                {w.goal.length > 40 ? w.goal.slice(0, 40) + '\u2026' : w.goal}
+              <span className="workflow-rail-item-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>
+                  {statusMarker(w.status)}{' '}
+                  {w.goal.length > 35 ? w.goal.slice(0, 35) + '\u2026' : w.goal}
+                </span>
+                <button
+                  onClick={e => { e.stopPropagation(); onDelete(w.id) }}
+                  style={{
+                    background: 'none', border: 'none', color: 'var(--text-muted)',
+                    cursor: 'pointer', fontSize: 11, padding: '0 2px', lineHeight: 1,
+                    opacity: 0.5
+                  }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '0.5')}
+                  title="Delete workflow"
+                  aria-label="Delete workflow"
+                >
+                  &#x2715;
+                </button>
               </span>
               <span className="workflow-rail-item-meta">
                 {statusLabel(w.status)} \u00b7 {formatTime(w.createdAt)}

@@ -5,6 +5,7 @@ export const IpcChannel = {
   // Invoke (renderer → main → response)
   WORKFLOW_START: 'workflow:start',
   WORKFLOW_CANCEL: 'workflow:cancel',
+  WORKFLOW_DELETE: 'workflow:delete',
   WORKFLOW_LIST: 'workflow:list',
   WORKFLOW_GET: 'workflow:get',
   WORKFLOW_TRACE: 'workflow:trace',

@@ -231,6 +231,18 @@ export function App() {
     }
   }
 
+  const handleDeleteWorkflow = async (wfId: string) => {
+    await window.artemis.workflows.delete({ workflowId: wfId })
+    setWorkflows(prev => prev.filter(w => w.id !== wfId))
+    if (activeId === wfId) {
+      setActiveId(null)
+      setTraceEvents([])
+      setSteps([])
+      setUsage(null)
+      setContextPackets([])
+    }
+  }
+
   const handleApproval = async (approvalId: string, decision: 'approved' | 'rejected') => {
     setPendingApproval(null)
     await window.artemis.approvals.resolve({ approvalId, decision })
@@ -246,6 +258,7 @@ export function App() {
             workflows={workflows}
             activeId={activeId}
             onSelect={setActiveId}
+            onDelete={handleDeleteWorkflow}
             onNew={() => setShowNewDialog(true)}
             project={activeProject}
             onAddProject={async () => {
