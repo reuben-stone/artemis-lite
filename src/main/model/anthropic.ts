@@ -119,7 +119,7 @@ export class AnthropicProvider implements ModelProvider {
   private client: Anthropic
   private model: string
 
-  constructor(apiKey: string, model = 'claude-sonnet-4-20250514') {
+  constructor(apiKey: string, model = process.env.ANTHROPIC_MODEL ?? 'claude-sonnet-4-20250514') {
     this.client = new Anthropic({ apiKey })
     this.model = model
   }
