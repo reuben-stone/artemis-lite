@@ -24,7 +24,9 @@ const api = {
     setActive: (input: SetActiveProjectInput) =>
       ipcRenderer.invoke(IpcChannel.PROJECT_SET_ACTIVE, input),
     getActive: () =>
-      ipcRenderer.invoke(IpcChannel.PROJECT_GET_ACTIVE)
+      ipcRenderer.invoke(IpcChannel.PROJECT_GET_ACTIVE),
+    pickFolder: () =>
+      ipcRenderer.invoke(IpcChannel.PROJECT_PICK_FOLDER)
   },
   workflows: {
     start: (input: StartWorkflowInput) =>

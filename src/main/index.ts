@@ -172,6 +172,15 @@ function registerIpcHandlers(): void {
     return { projectId: input.projectId }
   })
 
+  ipcMain.handle(IpcChannel.PROJECT_PICK_FOLDER, async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+      title: 'Select a repository folder'
+    })
+    if (result.canceled || result.filePaths.length === 0) return null
+    return result.filePaths[0]
+  })
+
   ipcMain.handle(IpcChannel.PROJECT_GET_ACTIVE, async () => {
     const project = getActiveProject()
     if (!project) return null

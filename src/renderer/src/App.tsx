@@ -249,9 +249,7 @@ export function App() {
             onNew={() => setShowNewDialog(true)}
             project={activeProject}
             onAddProject={async () => {
-              // Use a simple prompt for now — Phase 2 keeps UI minimal
-              // In Electron, we'd use dialog.showOpenDialog via IPC
-              const path = prompt('Enter repository path:')
+              const path = await window.artemis.projects.pickFolder()
               if (path) {
                 await window.artemis.projects.add({ path })
                 await refreshProject()

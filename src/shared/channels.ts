@@ -19,6 +19,7 @@ export const IpcChannel = {
   PROJECT_REMOVE: 'project:remove',
   PROJECT_SET_ACTIVE: 'project:setActive',
   PROJECT_GET_ACTIVE: 'project:getActive',
+  PROJECT_PICK_FOLDER: 'project:pickFolder',
 
   // Recovery
   WORKFLOW_INTERRUPTED: 'workflow:interrupted',
