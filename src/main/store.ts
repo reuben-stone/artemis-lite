@@ -88,7 +88,6 @@ export interface UsageRow {
 
 let db: Database.Database | null = null
 
-// Allow tests to inject a db opener
 let dbOpener: (() => Database.Database) | null = null
 export function __setDbOpener(opener: (() => Database.Database) | null): void {
   dbOpener = opener
@@ -101,7 +100,6 @@ function getDb(): Database.Database {
   if (dbOpener) {
     db = dbOpener()
   } else {
-    // Lazy import to avoid requiring electron in test context
     const { app } = require('electron')
     const dbPath = join(app.getPath('userData'), 'artemis-lite.db')
     db = new Database(dbPath)
@@ -226,6 +224,12 @@ export function listWorkflows(): WorkflowRow[] {
   return getDb().prepare('SELECT * FROM workflows ORDER BY createdAt DESC').all() as WorkflowRow[]
 }
 
+export function listNonTerminalWorkflows(): WorkflowRow[] {
+  return getDb().prepare(
+    "SELECT * FROM workflows WHERE status NOT IN ('completed', 'failed', 'cancelled') ORDER BY createdAt DESC"
+  ).all() as WorkflowRow[]
+}
+
 export function updateWorkflow(id: string, fields: Partial<Pick<WorkflowRow, 'status' | 'plan' | 'currentStepId'>>): void {
   const d = getDb()
   const sets: string[] = ['updatedAt = ?']
@@ -286,6 +290,11 @@ export function updateStep(id: string, fields: Partial<Pick<StepRow, 'status' | 
   d.prepare(`UPDATE workflow_steps SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
 }
 
+export function findStepForApproval(workflowId: string, approvalStepId: string): StepRow | undefined {
+  return getDb().prepare('SELECT * FROM workflow_steps WHERE workflowId = ? AND id = ?')
+    .get(workflowId, approvalStepId) as StepRow | undefined
+}
+
 // ── Trace events ───────────────────────────────────────────────────
 
 export function appendTrace(event: Omit<TraceEventRow, 'id'>): TraceEventRow {
@@ -330,7 +339,17 @@ export function listPendingApprovals(workflowId?: string): ApprovalRow[] {
   return getDb().prepare("SELECT * FROM approvals WHERE status = 'pending'").all() as ApprovalRow[]
 }
 
+export function getApprovalForStep(workflowId: string, stepId: string): ApprovalRow | undefined {
+  return getDb().prepare("SELECT * FROM approvals WHERE workflowId = ? AND stepId = ?")
+    .get(workflowId, stepId) as ApprovalRow | undefined
+}
+
 // ── Idempotency ────────────────────────────────────────────────────
+// Key format: workflowId:stepId:toolName (no attempt — identifies the logical side effect)
+
+export function idempotencyKey(workflowId: string, stepId: string, toolName: string): string {
+  return `${workflowId}:${stepId}:${toolName}`
+}
 
 export function checkIdempotency(key: string): IdempotencyRow | undefined {
   return getDb().prepare('SELECT * FROM idempotency_ledger WHERE key = ?').get(key) as IdempotencyRow | undefined

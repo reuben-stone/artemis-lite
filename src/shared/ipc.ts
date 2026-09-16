@@ -191,6 +191,10 @@ export const IpcChannel = {
   APPROVAL_RESOLVE: 'approval:resolve',
   APPROVAL_LIST: 'approval:list',
 
+  // Recovery
+  WORKFLOW_INTERRUPTED: 'workflow:interrupted',
+  WORKFLOW_RESUME: 'workflow:resume',
+
   // Push (main → renderer)
   WORKFLOW_EVENT: 'workflow:event'
 } as const

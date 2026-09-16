@@ -12,7 +12,7 @@ import {
   listWorkflows, getWorkflow, listSteps,
   listTraceEvents, getWorkflowUsage, listPendingApprovals
 } from './store'
-import { runWorkflow, resolveWorkflowApproval } from './workflow'
+import { runWorkflow, resumeWorkflow, discoverInterruptedWorkflows, resolveWorkflowApproval } from './workflow'
 import { AnthropicProvider } from './model/anthropic'
 import { createDefaultRegistry } from './tools/registry'
 import { existsSync, mkdirSync } from 'fs'
@@ -188,6 +188,37 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.APPROVAL_LIST, async () => {
     return listPendingApprovals()
+  })
+
+  ipcMain.handle(IpcChannel.WORKFLOW_INTERRUPTED, async () => {
+    return discoverInterruptedWorkflows().map(w => ({
+      id: w.id,
+      goal: w.goal,
+      status: w.status,
+      createdAt: w.createdAt,
+      updatedAt: w.updatedAt
+    }))
+  })
+
+  ipcMain.handle(IpcChannel.WORKFLOW_RESUME, async (_event, raw: unknown) => {
+    const input = GetWorkflowInput.parse(raw)
+
+    const apiKey = process.env.ANTHROPIC_API_KEY
+    if (!apiKey) {
+      throw new Error('ANTHROPIC_API_KEY not set.')
+    }
+
+    const model = new AnthropicProvider(apiKey)
+    const tools = createDefaultRegistry()
+    const workspacePath = getDemoWorkspacePath()
+
+    const wf = await resumeWorkflow(input.workflowId, {
+      model,
+      tools,
+      workspacePath,
+      emit: emitToRenderer
+    })
+    return { id: wf.id, goal: wf.goal, status: wf.status }
   })
 }
 

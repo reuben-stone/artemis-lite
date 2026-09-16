@@ -82,11 +82,34 @@ export function App() {
 
   const activeWorkflow = workflows.find(w => w.id === activeId) ?? null
 
-  // Load persisted workflows on mount
+  // Load persisted workflows on mount + discover interrupted
   useEffect(() => {
-    window.artemis.workflows.list().then((list: WorkflowItem[]) => {
+    async function init() {
+      const list = await window.artemis.workflows.list()
       setWorkflows(list)
-    })
+
+      // Check for interrupted workflows
+      const interrupted = await window.artemis.workflows.interrupted()
+      if (interrupted.length > 0) {
+        const wf = interrupted[0] // Resume the most recent
+        setActiveId(wf.id)
+        setLastEvent(`Recovered workflow from checkpoint — ${wf.goal.slice(0, 50)}`)
+        setBusy(true)
+
+        try {
+          const result = await window.artemis.workflows.resume({ workflowId: wf.id })
+          setWorkflows(prev => prev.map(w =>
+            w.id === wf.id ? { ...w, status: result.status } : w
+          ))
+          refreshWorkflowData(wf.id)
+        } catch (err: any) {
+          setLastEvent(`Recovery failed: ${err.message ?? String(err)}`)
+        } finally {
+          setBusy(false)
+        }
+      }
+    }
+    init()
   }, [])
 
   // Subscribe to workflow events
