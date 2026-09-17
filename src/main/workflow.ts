@@ -939,7 +939,7 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
       const artifacts: WorkflowArtifact[] = plan.steps
         .filter(s => s.toolName && resumeStepResults[s.id] !== undefined)
         .map(s => ({ toolName: s.toolName!, objective: s.objective, data: resumeStepResults[s.id] }))
-      const summary = buildResultSummary(goal, artifacts, resumeVerification)
+      const summary = buildResultSummary(wf.goal, artifacts, resumeVerification)
       createWorkflowResult(wf.id, resultStatus, summary, resumeVerification.reason, artifacts)
     }
 

@@ -1,0 +1,7 @@
+{
+  "id": "ab811920",
+  "title": "Document key architecture decisions",
+  "description": "Capture and track the key Architecture Decision Records (ADRs) from docs/DECISIONS.md:\n\n- ADR-001: Electron desktop application (chosen over Next.js SPA or Tauri for local-first control and Node/TypeScript depth)\n- ADR-002: TypeScript/Node runtime first, no Python service (single runtime, simpler debugging, faster iteration)\n- ADR-003: SQLite for all persistence (zero external dependencies, single file, includes vector storage via sqlite-vec)\n\nEach ADR includes context, decision, alternatives considered, consequences, and revisit conditions. These decisions shape the Artemis Lite architecture and should be revisited when stated conditions are met.",
+  "priority": "medium",
+  "createdAt": "2026-09-17T15:54:45.833Z"
+}
