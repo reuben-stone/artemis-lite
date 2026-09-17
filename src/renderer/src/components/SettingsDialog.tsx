@@ -60,11 +60,11 @@ export function SettingsDialog({ onClose }: Props) {
   }
 
   return (
-    <div className="dialog-overlay" onClick={onClose}>
-      <div className="dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 500 }}>
-        <div className="dialog-header">
-          <h2>Settings</h2>
-          <button className="btn btn-ghost" onClick={onClose}>&times;</button>
+    <div className="dialog-backdrop" onClick={onClose}>
+      <div className="dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: 500, padding: 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border-subtle)' }}>
+          <div className="dialog-title" style={{ margin: 0 }}>Settings</div>
+          <button className="btn btn-ghost" onClick={onClose} style={{ fontSize: 16 }}>&times;</button>
         </div>
 
         <div style={{ padding: '16px 20px' }}>

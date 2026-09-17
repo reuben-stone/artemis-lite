@@ -455,20 +455,12 @@ app.whenReady().then(() => {
 
   // Initialize scheduler — creates workflows on schedule
   try {
-    const Database = require('better-sqlite3')
-    const { app: electronApp } = require('electron')
-    const dbPath = join(electronApp.getPath('userData'), 'artemis-lite.db')
+    const { getDb, createWorkflow: createWf } = require('./store')
     scheduler = new Scheduler({
-      getDb: () => {
-        const db = new Database(dbPath)
-        db.pragma('journal_mode = WAL')
-        return db
-      },
-      createWorkflowFn: (goal, projectId) => {
-        // Create workflow row — the renderer will see it on next list refresh
-        const { createWorkflow: createWf } = require('./store')
-        createWf(goal, projectId)
-        emitToRenderer({ type: 'workflow.status', workflowId: '', status: 'queued' })
+      getDb,
+      createWorkflowFn: (goal: string, projectId: string | null) => {
+        const wf = createWf(goal, projectId)
+        emitToRenderer({ type: 'workflow.status', workflowId: wf.id, status: 'queued' })
       }
     })
     scheduler.start()

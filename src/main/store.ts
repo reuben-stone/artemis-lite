@@ -114,7 +114,7 @@ export function __setDbOpener(opener: (() => Database.Database) | null): void {
   db = null
 }
 
-function getDb(): Database.Database {
+export function getDb(): Database.Database {
   if (db) return db
 
   if (dbOpener) {
