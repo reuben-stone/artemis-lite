@@ -661,13 +661,19 @@ async function runVerification(
 
 // ── Run (new workflow) ─────────────────────────────────────────────
 
-export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectId?: string | null): Promise<WorkflowRow> {
+export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectId?: string | null, existingWorkflowId?: string): Promise<WorkflowRow> {
   const { model, tools, emit } = deps
   const fi = getFaultInjector(deps)
 
-  const wf = createWorkflow(goal, projectId)
-  trace(wf.id, 'workflow.created', { status: 'start' })
-  emit({ type: 'workflow.status', workflowId: wf.id, status: 'queued' })
+  // Use pre-created workflow if provided, otherwise create new
+  const wf = existingWorkflowId
+    ? getWorkflow(existingWorkflowId)!
+    : createWorkflow(goal, projectId)
+
+  if (!existingWorkflowId) {
+    trace(wf.id, 'workflow.created', { status: 'start' })
+    emit({ type: 'workflow.status', workflowId: wf.id, status: 'queued' })
+  }
 
   try {
     // Planning

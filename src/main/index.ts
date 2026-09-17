@@ -250,20 +250,27 @@ function registerIpcHandlers(): void {
     const config = getAppConfig()
     const { projectId, workspacePath } = requireActiveProject()
 
+    // Create the workflow row synchronously so we can return the real ID immediately
+    const wfRow = createWorkflow(input.goal, projectId)
+
+    // Run execution in background — events stream to renderer via emitToRenderer
     const model = new AnthropicProvider(apiKey, config.anthropicModel)
     const tools = createDefaultRegistry()
     const toolCtx = buildToolContext(workspacePath)
 
-    const wf = await runWorkflow(input.goal, {
+    runWorkflow(input.goal, {
       model,
       tools,
       workspacePath,
       toolContext: toolCtx,
       emit: emitToRenderer,
       faultInjector
-    }, projectId)
+    }, projectId, wfRow.id).catch(err => {
+      console.error('[Workflow] Background execution failed:', err)
+    })
 
-    return { id: wf.id, goal: wf.goal, status: wf.status }
+    // Return immediately so the renderer has the real ID for event matching
+    return { id: wfRow.id, goal: wfRow.goal, status: wfRow.status }
   })
 
   ipcMain.handle(IpcChannel.WORKFLOW_CANCEL, async (_event, raw: unknown) => {
