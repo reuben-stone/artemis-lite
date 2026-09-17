@@ -5,6 +5,7 @@ interface Props {
   steps: WorkflowStep[]
   pendingApproval: ApprovalData | null
   onApproval: (approvalId: string, decision: 'approved' | 'rejected') => void
+  result: { status: string; summary: string } | null
 }
 
 function formatTime(iso: string): string {
@@ -60,7 +61,7 @@ function stepKind(type: string): string {
   }
 }
 
-export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval }: Props) {
+export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, result }: Props) {
   if (!workflow) {
     return (
       <div className="workflow-panel">
@@ -230,10 +231,31 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval }: 
                   <div className="stage-description">Awaiting human approval</div>
                 )}
 
-                {/* Completion summary */}
+                {/* Result summary */}
                 {stage === 'completed' && workflow.status === 'completed' && (
-                  <div className="stage-description" style={{ color: 'var(--status-success)' }}>
-                    Workflow completed successfully
+                  <div style={{ marginTop: 8 }}>
+                    {result ? (
+                      <div style={{
+                        padding: '12px 16px',
+                        border: `1px solid ${result.status === 'succeeded' ? 'var(--status-success)' : result.status === 'partial' ? 'var(--status-warning)' : 'var(--status-danger)'}`,
+                        borderRadius: 'var(--radius-md)',
+                        background: 'var(--bg-panel-raised)'
+                      }}>
+                        <div style={{
+                          fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
+                          color: result.status === 'succeeded' ? 'var(--status-success)' : result.status === 'partial' ? 'var(--status-warning)' : 'var(--status-danger)'
+                        }}>
+                          Result: {result.status}
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                          {result.summary}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="stage-description" style={{ color: 'var(--status-success)' }}>
+                        Workflow completed successfully
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -249,6 +271,18 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval }: 
             </div>
             <div className="stage-content">
               <span className="stage-title" style={{ color: 'var(--status-danger)' }}>Failed</span>
+              {result && (
+                <div style={{
+                  marginTop: 8, padding: '12px 16px',
+                  border: '1px solid var(--status-danger)',
+                  borderRadius: 'var(--radius-md)',
+                  background: 'var(--bg-panel-raised)'
+                }}>
+                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+                    {result.summary}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
