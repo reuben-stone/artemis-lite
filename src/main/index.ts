@@ -33,9 +33,11 @@ import { InjectableFaultInjector, type FaultType } from './fault-injector'
 import { getGitRemote, getGitStatus } from './git'
 import { GitHubClient, parseGitHubRemote } from './github'
 import type { GitHubIdentity } from './github-types'
+import { Scheduler } from './scheduler'
 import { existsSync } from 'fs'
 
 let win: BrowserWindow | null = null
+let scheduler: Scheduler | null = null
 
 // Singleton fault injector for the app lifetime
 const faultInjector = new InjectableFaultInjector({
@@ -383,6 +385,32 @@ function registerIpcHandlers(): void {
     return { id: wf.id, goal: wf.goal, status: wf.status }
   })
 
+  // ── Scheduler handlers ──────────────────────────────────────────
+
+  ipcMain.handle(IpcChannel.SCHEDULE_LIST, async () => {
+    return scheduler?.listSchedules() ?? []
+  })
+
+  ipcMain.handle(IpcChannel.SCHEDULE_ADD, async (_event, raw: unknown) => {
+    const input = raw as { name: string; goal: string; cronHour: number; cronMinute: number; projectId?: string }
+    if (!scheduler) throw new Error('Scheduler not initialized')
+    return scheduler.addSchedule(input.name, input.goal, input.cronHour, input.cronMinute, input.projectId)
+  })
+
+  ipcMain.handle(IpcChannel.SCHEDULE_REMOVE, async (_event, raw: unknown) => {
+    const { scheduleId } = raw as { scheduleId: string }
+    scheduler?.removeSchedule(scheduleId)
+    return { removed: true }
+  })
+
+  ipcMain.handle(IpcChannel.SCHEDULE_TOGGLE, async (_event, raw: unknown) => {
+    const { scheduleId, enabled } = raw as { scheduleId: string; enabled: boolean }
+    scheduler?.toggleSchedule(scheduleId, enabled)
+    return { toggled: true }
+  })
+
+  // ── Fault Lab handlers ─────────────────────────────────────────
+
   ipcMain.handle(IpcChannel.FAULT_ARM, async (_event, raw: unknown) => {
     const { fault } = raw as { fault: string }
     faultInjector.arm(fault as FaultType)
@@ -404,6 +432,30 @@ function registerIpcHandlers(): void {
 
 app.whenReady().then(() => {
   registerIpcHandlers()
+
+  // Initialize scheduler — creates workflows on schedule
+  try {
+    const Database = require('better-sqlite3')
+    const { app: electronApp } = require('electron')
+    const dbPath = join(electronApp.getPath('userData'), 'artemis-lite.db')
+    scheduler = new Scheduler({
+      getDb: () => {
+        const db = new Database(dbPath)
+        db.pragma('journal_mode = WAL')
+        return db
+      },
+      createWorkflowFn: (goal, projectId) => {
+        // Create workflow row — the renderer will see it on next list refresh
+        const { createWorkflow: createWf } = require('./store')
+        createWf(goal, projectId)
+        emitToRenderer({ type: 'workflow.status', workflowId: '', status: 'queued' })
+      }
+    })
+    scheduler.start()
+  } catch (err) {
+    console.error('[Scheduler] Failed to initialize:', err)
+  }
+
   createWindow()
 
   app.on('activate', () => {

@@ -6,7 +6,7 @@ import { Inspector } from './components/Inspector'
 import { BottomStrip } from './components/BottomStrip'
 import { NewWorkflowDialog } from './components/NewWorkflowDialog'
 
-export type InspectorTab = 'trace' | 'context' | 'state' | 'usage' | 'faults'
+export type InspectorTab = 'trace' | 'context' | 'state' | 'usage' | 'faults' | 'schedule'
 
 export interface ProjectInfo {
   id: string

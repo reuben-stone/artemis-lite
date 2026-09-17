@@ -58,6 +58,16 @@ const api = {
     list: () =>
       ipcRenderer.invoke(IpcChannel.APPROVAL_LIST)
   },
+  scheduler: {
+    list: () =>
+      ipcRenderer.invoke(IpcChannel.SCHEDULE_LIST),
+    add: (input: { name: string; goal: string; cronHour: number; cronMinute: number; projectId?: string }) =>
+      ipcRenderer.invoke(IpcChannel.SCHEDULE_ADD, input),
+    remove: (input: { scheduleId: string }) =>
+      ipcRenderer.invoke(IpcChannel.SCHEDULE_REMOVE, input),
+    toggle: (input: { scheduleId: string; enabled: boolean }) =>
+      ipcRenderer.invoke(IpcChannel.SCHEDULE_TOGGLE, input)
+  },
   faultLab: {
     arm: (fault: string) =>
       ipcRenderer.invoke(IpcChannel.FAULT_ARM, { fault }),

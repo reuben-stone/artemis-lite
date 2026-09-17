@@ -16,7 +16,8 @@ const TABS: { id: InspectorTab; label: string }[] = [
   { id: 'context', label: 'Context' },
   { id: 'state', label: 'State' },
   { id: 'usage', label: 'Usage' },
-  { id: 'faults', label: 'Faults' }
+  { id: 'faults', label: 'Faults' },
+  { id: 'schedule', label: 'Schedule' }
 ]
 
 export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usage, contextPackets }: Props) {
@@ -52,6 +53,8 @@ export function Inspector({ workflow, tab, onTabChange, traceEvents, steps, usag
           <UsageView usage={usage} />
         ) : tab === 'faults' ? (
           <FailureLab />
+        ) : tab === 'schedule' ? (
+          <ScheduleView />
         ) : null}
       </div>
     </div>
@@ -296,6 +299,145 @@ function UsageView({ usage }: { usage: UsageData | null }) {
               : 'Unavailable'}
           </span>
         </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Schedule ──────────────────────────────────────────────────────
+
+import { useState, useEffect } from 'react'
+
+function ScheduleView() {
+  const [schedules, setSchedules] = useState<any[]>([])
+  const [showAdd, setShowAdd] = useState(false)
+
+  useEffect(() => {
+    window.artemis.scheduler.list().then(setSchedules)
+  }, [])
+
+  const refresh = async () => {
+    const list = await window.artemis.scheduler.list()
+    setSchedules(list)
+  }
+
+  const handleAdd = async (name: string, goal: string, hour: number, minute: number) => {
+    await window.artemis.scheduler.add({ name, goal, cronHour: hour, cronMinute: minute })
+    setShowAdd(false)
+    refresh()
+  }
+
+  const handleRemove = async (id: string) => {
+    await window.artemis.scheduler.remove({ scheduleId: id })
+    refresh()
+  }
+
+  const handleToggle = async (id: string, enabled: boolean) => {
+    await window.artemis.scheduler.toggle({ scheduleId: id, enabled })
+    refresh()
+  }
+
+  return (
+    <div style={{ padding: '12px' }}>
+      <div className="section-label" style={{ padding: 0, marginBottom: 8 }}>Scheduled Workflows</div>
+
+      {schedules.length === 0 && !showAdd && (
+        <div style={{ color: 'var(--text-muted)', fontSize: 12, marginBottom: 12 }}>
+          No schedules configured. Add one to run workflows automatically.
+        </div>
+      )}
+
+      {schedules.map((s: any) => (
+        <div key={s.id} style={{
+          padding: '8px',
+          borderRadius: 'var(--radius)',
+          border: '1px solid var(--border-subtle)',
+          marginBottom: 6,
+          fontSize: 12
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontWeight: 500, color: s.enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+              {s.name}
+            </span>
+            <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>
+              {String(s.cronHour).padStart(2, '0')}:{String(s.cronMinute).padStart(2, '0')}
+            </span>
+          </div>
+          <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginTop: 2 }}>
+            {s.goal.slice(0, 60)}
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginTop: 6, fontSize: 11 }}>
+            <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => handleToggle(s.id, !s.enabled)}>
+              {s.enabled ? 'Disable' : 'Enable'}
+            </button>
+            <button className="btn btn-ghost" style={{ fontSize: 11, color: 'var(--status-danger)' }} onClick={() => handleRemove(s.id)}>
+              Remove
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {showAdd ? (
+        <AddScheduleForm onAdd={handleAdd} onCancel={() => setShowAdd(false)} />
+      ) : (
+        <button className="btn btn-ghost" style={{ fontSize: 11, marginTop: 4 }} onClick={() => setShowAdd(true)}>
+          + Add schedule
+        </button>
+      )}
+    </div>
+  )
+}
+
+function AddScheduleForm({ onAdd, onCancel }: {
+  onAdd: (name: string, goal: string, hour: number, minute: number) => void
+  onCancel: () => void
+}) {
+  const [name, setName] = useState('Morning Review')
+  const [goal, setGoal] = useState('Review all registered projects. Summarize recent GitHub activity, open issues, and pull requests.')
+  const [hour, setHour] = useState(8)
+  const [minute, setMinute] = useState(0)
+
+  return (
+    <div style={{
+      padding: '10px',
+      border: '1px solid var(--border-subtle)',
+      borderRadius: 'var(--radius-md)',
+      marginTop: 8
+    }}>
+      <div style={{ marginBottom: 6 }}>
+        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Name</label>
+        <input
+          value={name} onChange={e => setName(e.target.value)}
+          style={{ width: '100%', padding: '4px 8px', fontSize: 12, background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', color: 'var(--text-primary)' }}
+        />
+      </div>
+      <div style={{ marginBottom: 6 }}>
+        <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Goal</label>
+        <textarea
+          value={goal} onChange={e => setGoal(e.target.value)}
+          rows={2}
+          style={{ width: '100%', padding: '4px 8px', fontSize: 12, background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', color: 'var(--text-primary)', resize: 'vertical' }}
+        />
+      </div>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Hour</label>
+          <input
+            type="number" min={0} max={23} value={hour} onChange={e => setHour(Number(e.target.value))}
+            style={{ width: 50, padding: '4px 6px', fontSize: 12, background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', color: 'var(--text-primary)' }}
+          />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Minute</label>
+          <input
+            type="number" min={0} max={59} value={minute} onChange={e => setMinute(Number(e.target.value))}
+            style={{ width: 50, padding: '4px 6px', fontSize: 12, background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius)', color: 'var(--text-primary)' }}
+          />
+        </div>
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        <button className="btn btn-ghost" style={{ fontSize: 11 }} onClick={onCancel}>Cancel</button>
+        <button className="btn btn-primary" style={{ fontSize: 11 }} onClick={() => onAdd(name, goal, hour, minute)}>Add</button>
       </div>
     </div>
   )

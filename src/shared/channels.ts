@@ -28,6 +28,12 @@ export const IpcChannel = {
   WORKFLOW_INTERRUPTED: 'workflow:interrupted',
   WORKFLOW_RESUME: 'workflow:resume',
 
+  // Scheduler
+  SCHEDULE_LIST: 'schedule:list',
+  SCHEDULE_ADD: 'schedule:add',
+  SCHEDULE_REMOVE: 'schedule:remove',
+  SCHEDULE_TOGGLE: 'schedule:toggle',
+
   // Failure Lab
   FAULT_ARM: 'fault:arm',
   FAULT_DISARM: 'fault:disarm',
