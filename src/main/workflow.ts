@@ -503,27 +503,45 @@ async function executePlanSteps(
 ): Promise<Record<string, unknown>> {
   const { emit } = deps
   const fi = getFaultInjector(deps)
+  // Key by plan step ID, not toolName — same tool may be called multiple times with different args
   const stepResults: Record<string, unknown> = {}
 
+  // Map existing completed steps by their inputData.planStepId (set during creation)
   for (const s of existingSteps) {
-    if (s.status === 'completed' && s.toolName && s.outputData) {
-      stepResults[s.toolName] = JSON.parse(s.outputData)
+    if (s.status === 'completed' && s.outputData && s.inputData) {
+      try {
+        const input = JSON.parse(s.inputData)
+        if (input.planStepId) {
+          stepResults[input.planStepId] = JSON.parse(s.outputData)
+        }
+      } catch { /* ok */ }
     }
   }
 
   for (const planItem of plan.steps) {
     if (planItem.preferredAction !== 'use_tool' || !planItem.toolName) continue
 
-    let step = existingSteps.find(s => s.toolName === planItem.toolName && s.type === 'tool')
+    // Match by planStepId stored in inputData, not by toolName
+    let step = existingSteps.find(s => {
+      if (s.type !== 'tool') return false
+      try {
+        const input = JSON.parse(s.inputData ?? '{}')
+        return input.planStepId === planItem.id
+      } catch { return false }
+    })
 
     if (step?.status === 'completed') {
-      if (step.outputData) stepResults[planItem.toolName] = JSON.parse(step.outputData)
+      if (step.outputData) stepResults[planItem.id] = JSON.parse(step.outputData)
       trace(wf.id, 'step.skipped_completed', { stepId: step.id, toolName: planItem.toolName, status: 'success' })
       continue
     }
 
     if (!step) {
-      step = createStep(wf.id, 'tool', planItem.toolName, { objective: planItem.objective })
+      step = createStep(wf.id, 'tool', planItem.toolName, {
+        planStepId: planItem.id,
+        objective: planItem.objective,
+        toolArgs: planItem.toolArgs
+      })
     }
 
     updateWorkflow(wf.id, { currentStepId: step.id })
@@ -537,7 +555,7 @@ async function executePlanSteps(
     try {
       const result = await executeToolStep(wf, step, planItem.toolName, planItem.toolArgs ?? {}, planItem.objective, deps)
       if (result !== undefined) {
-        stepResults[planItem.toolName] = result
+        stepResults[planItem.id] = result
         updateStep(step.id, {
           status: 'completed',
           outputData: JSON.stringify(result),
@@ -722,11 +740,11 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     const resultStatus = !verification.pass ? 'failed' : failedSteps.length > 0 ? 'partial' : 'succeeded'
 
     const artifacts: WorkflowArtifact[] = plan.steps
-      .filter(s => s.toolName && stepResults[s.toolName] !== undefined)
+      .filter(s => s.toolName && stepResults[s.id] !== undefined)
       .map(s => ({
         toolName: s.toolName!,
         objective: s.objective,
-        data: stepResults[s.toolName!]
+        data: stepResults[s.id]
       }))
 
     const summary = buildResultSummary(goal, artifacts, verification)
@@ -885,8 +903,13 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
 
         const stepResults: Record<string, unknown> = {}
         for (const s of steps) {
-          if (s.status === 'completed' && s.toolName && s.outputData) {
-            stepResults[s.toolName] = JSON.parse(s.outputData)
+          if (s.status === 'completed' && s.outputData && s.inputData) {
+            try {
+              const input = JSON.parse(s.inputData)
+              if (input.planStepId) {
+                stepResults[input.planStepId] = JSON.parse(s.outputData)
+              }
+            } catch { /* ok */ }
           }
         }
 
@@ -908,8 +931,8 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
       const failedSteps = allSteps.filter(s => s.status === 'failed')
       const resultStatus = !resumeVerification.pass ? 'failed' : failedSteps.length > 0 ? 'partial' : 'succeeded'
       const artifacts: WorkflowArtifact[] = plan.steps
-        .filter(s => s.toolName && resumeStepResults[s.toolName] !== undefined)
-        .map(s => ({ toolName: s.toolName!, objective: s.objective, data: resumeStepResults[s.toolName!] }))
+        .filter(s => s.toolName && resumeStepResults[s.id] !== undefined)
+        .map(s => ({ toolName: s.toolName!, objective: s.objective, data: resumeStepResults[s.id] }))
       const summary = buildResultSummary(goal, artifacts, resumeVerification)
       createWorkflowResult(wf.id, resultStatus, summary, resumeVerification.reason, artifacts)
     }

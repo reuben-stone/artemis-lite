@@ -95,20 +95,39 @@ Rules:
 }
 
 function renderContextForVerify(request: VerifyRequest): { system: string; user: string } {
-  const system = `You are a workflow verifier. Given the original goal, the execution plan, and the results of each step, determine whether the goal has been achieved.
+  const system = `You are a strict workflow verifier. You must determine whether the ACTUAL EXECUTION EVIDENCE demonstrates that the original goal was achieved.
+
+Rules:
+- Evaluate the step results data, not the plan descriptions.
+- If multiple steps used the same tool with different arguments, verify each returned DISTINCT results appropriate to its arguments.
+- If the evidence is contradictory, incomplete, or does not demonstrate the requested outcome, you MUST fail.
+- A tool executing successfully does not mean the goal is met. The returned data must actually satisfy the goal.
+- If results appear duplicated or nonsensical relative to the goal, fail with a specific reason.
 
 Respond ONLY with valid JSON:
 {
   "pass": true or false,
-  "reason": "brief explanation (max 500 chars)"
+  "reason": "brief explanation referencing specific evidence (max 500 chars)"
 }
 
 Return ONLY the JSON object, no markdown fences or explanation.`
 
   const userParts: string[] = []
   userParts.push(`Goal: ${request.goal}`)
-  userParts.push(`Plan: ${JSON.stringify(request.plan, null, 2)}`)
-  userParts.push(`Step results: ${JSON.stringify(request.stepResults, null, 2)}`)
+  userParts.push(`Plan summary: ${request.plan.summary}`)
+
+  // Present step results keyed by plan step ID with objective for clarity
+  const evidence: Record<string, { objective: string; toolName?: string; result: unknown }> = {}
+  for (const s of request.plan.steps) {
+    if (s.toolName && request.stepResults[s.id] !== undefined) {
+      evidence[s.id] = {
+        objective: s.objective,
+        toolName: s.toolName,
+        result: request.stepResults[s.id]
+      }
+    }
+  }
+  userParts.push(`Execution evidence:\n${JSON.stringify(evidence, null, 2)}`)
 
   return { system, user: userParts.join('\n\n') }
 }
