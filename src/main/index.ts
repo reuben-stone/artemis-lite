@@ -1,3 +1,10 @@
+import { loadDotenv, requireAnthropicKey, getAppConfig } from './env'
+
+// Load .env before anything else reads process.env.
+// app.getAppPath() isn't available yet, but the working directory
+// is the project root when launched via `electron-vite dev` or `electron .`
+loadDotenv(process.cwd())
+
 import { app, BrowserWindow, ipcMain, shell, session, dialog } from 'electron'
 import { join, basename } from 'path'
 import {
@@ -16,13 +23,16 @@ import {
   listTraceEvents, getWorkflowUsage, listPendingApprovals, listContextPackets,
   createProject, getProject, listProjects, removeProject,
   getActiveProject, getActiveProjectId, setActiveProjectId,
-  getProjectByPath
+  getProjectByPath, updateProjectGitHub, getWorkflowResult
 } from './store'
 import { runWorkflow, resumeWorkflow, discoverInterruptedWorkflows, resolveWorkflowApproval } from './workflow'
 import { AnthropicProvider } from './model/anthropic'
 import { createDefaultRegistry } from './tools/registry'
+import type { ToolContext } from './tools/registry'
 import { InjectableFaultInjector, type FaultType } from './fault-injector'
 import { getGitRemote, getGitStatus } from './git'
+import { GitHubClient, parseGitHubRemote } from './github'
+import type { GitHubIdentity } from './github-types'
 import { existsSync } from 'fs'
 
 let win: BrowserWindow | null = null
@@ -103,10 +113,41 @@ function requireActiveProject(): { projectId: string; workspacePath: string } {
   return { projectId: project.id, workspacePath: project.path }
 }
 
-function requireApiKey(): string {
-  const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set. Export it in your environment before running.')
-  return apiKey
+// requireAnthropicKey() and getAppConfig() are imported from ./env
+
+/**
+ * Build ToolContext for the active project, including GitHub client if available.
+ */
+function buildToolContext(workspacePath: string): ToolContext {
+  const ctx: ToolContext = { workspacePath }
+  const ghToken = process.env.GITHUB_TOKEN
+  if (ghToken) {
+    ctx.githubClient = new GitHubClient(ghToken)
+    // Resolve GitHub identity from active project
+    const project = getActiveProject()
+    if (project?.githubOwner && project?.githubRepo) {
+      ctx.githubIdentity = { owner: project.githubOwner, repo: project.githubRepo }
+    } else if (project?.remote) {
+      // Backfill: project was added before Phase 4 — parse and persist now
+      const identity = parseGitHubRemote(project.remote)
+      if (identity) {
+        updateProjectGitHub(project.id, identity.owner, identity.repo)
+        ctx.githubIdentity = identity
+      }
+    }
+  }
+  return ctx
+}
+
+/**
+ * Parse GitHub identity from a git remote URL and persist it to the project.
+ */
+function resolveAndPersistGitHub(projectId: string, remote: string | null): void {
+  if (!remote) return
+  const identity = parseGitHubRemote(remote)
+  if (identity) {
+    updateProjectGitHub(projectId, identity.owner, identity.repo)
+  }
 }
 
 // ── IPC handlers ─────────────────────────────────────────────────
@@ -148,7 +189,8 @@ function registerIpcHandlers(): void {
 
     const name = basename(path)
     const remote = await getGitRemote(path).catch(() => null)
-    const project = createProject(name, path, remote)
+    const github = remote ? parseGitHubRemote(remote) : null
+    const project = createProject(name, path, remote, github)
 
     // Auto-activate if first project
     if (!getActiveProjectId()) {
@@ -200,16 +242,19 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.WORKFLOW_START, async (_event, raw: unknown) => {
     const input = StartWorkflowInput.parse(raw)
-    const apiKey = requireApiKey()
+    const apiKey = requireAnthropicKey()
+    const config = getAppConfig()
     const { projectId, workspacePath } = requireActiveProject()
 
-    const model = new AnthropicProvider(apiKey)
+    const model = new AnthropicProvider(apiKey, config.anthropicModel)
     const tools = createDefaultRegistry()
+    const toolCtx = buildToolContext(workspacePath)
 
     const wf = await runWorkflow(input.goal, {
       model,
       tools,
       workspacePath,
+      toolContext: toolCtx,
       emit: emitToRenderer,
       faultInjector
     }, projectId)
@@ -275,6 +320,12 @@ function registerIpcHandlers(): void {
     return { workflowId: input.workflowId, packets: listContextPackets(input.workflowId) }
   })
 
+  ipcMain.handle(IpcChannel.WORKFLOW_RESULT, async (_event, raw: unknown) => {
+    const input = GetWorkflowInput.parse(raw)
+    const result = getWorkflowResult(input.workflowId)
+    return { workflowId: input.workflowId, result: result ?? null }
+  })
+
   ipcMain.handle(IpcChannel.APPROVAL_RESOLVE, async (_event, raw: unknown) => {
     const input = ResolveApprovalInput.parse(raw)
     resolveWorkflowApproval(input.approvalId, input.decision)
@@ -297,7 +348,8 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.WORKFLOW_RESUME, async (_event, raw: unknown) => {
     const input = GetWorkflowInput.parse(raw)
-    const apiKey = requireApiKey()
+    const apiKey = requireAnthropicKey()
+    const config = getAppConfig()
 
     // Resolve the project from the workflow's persisted projectId
     const wfRow = getWorkflow(input.workflowId)
@@ -316,13 +368,15 @@ function registerIpcHandlers(): void {
       workspacePath = active.path
     }
 
-    const model = new AnthropicProvider(apiKey)
+    const model = new AnthropicProvider(apiKey, config.anthropicModel)
     const tools = createDefaultRegistry()
+    const toolCtx = buildToolContext(workspacePath)
 
     const wf = await resumeWorkflow(input.workflowId, {
       model,
       tools,
       workspacePath,
+      toolContext: toolCtx,
       emit: emitToRenderer,
       faultInjector
     })

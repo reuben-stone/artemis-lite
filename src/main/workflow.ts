@@ -11,11 +11,12 @@ import {
   appendTrace, createApproval, resolveApproval, getApprovalForStep,
   checkIdempotency, markIdempotencyPending, markIdempotencyComplete,
   idempotencyKey, appendUsage, getWorkflowUsage, listPendingApprovals,
-  appendContextPacket, updateContextPacketProviderTokens
+  appendContextPacket, updateContextPacketProviderTokens,
+  createWorkflowResult
 } from './store'
 import type { WorkflowRow, StepRow, ApprovalRow } from './store'
 import type { ModelProvider, PlanOutput } from './model/types'
-import { executeTool, getToolDefinitions, type ToolRegistry } from './tools/registry'
+import { executeTool, getToolDefinitions, type ToolRegistry, type ToolContext } from './tools/registry'
 import { buildContext } from './context/builder'
 import { toPersistedItem } from './context/types'
 import type { ContextPacket } from './context/types'
@@ -64,6 +65,7 @@ export interface OrchestratorDeps {
   model: ModelProvider
   tools: ToolRegistry
   workspacePath: string
+  toolContext?: Partial<ToolContext>  // Extra context (e.g. GitHub client) merged into tool calls
   emit: Emit
   faultInjector?: FaultInjector
 }
@@ -341,7 +343,7 @@ async function executeToolStep(
       emit({ type: 'tool.started', workflowId: wf.id, stepId: step.id, toolName })
 
       const toolStart = Date.now()
-      const toolResult = await executeTool(tools, toolName, toolArgs, { workspacePath })
+      const toolResult = await executeTool(tools, toolName, toolArgs, { workspacePath, ...deps.toolContext })
       const toolDuration = Date.now() - toolStart
 
       // Side effect has now occurred. From this point, failures are
@@ -641,6 +643,13 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     // Complete
     transition(wf, 'completed')
     const usage = getWorkflowUsage(wf.id)
+
+    // Create WorkflowResult
+    const resultSummary = plan.summary || goal
+    const failedSteps = listSteps(wf.id).filter(s => s.status === 'failed')
+    const resultStatus = failedSteps.length > 0 ? 'partial' : 'succeeded'
+    createWorkflowResult(wf.id, resultStatus, resultSummary)
+
     trace(wf.id, 'workflow.completed', { status: 'success' })
     emit({ type: 'workflow.completed', workflowId: wf.id, usage })
     emit({ type: 'workflow.status', workflowId: wf.id, status: 'completed' })
@@ -659,6 +668,7 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
       return getWorkflow(wf.id)!
     }
     try { transition(wf, 'failed') } catch { /* already terminal */ }
+    createWorkflowResult(wf.id, 'failed', errMsg)
     trace(wf.id, 'workflow.failed', { status: 'failure', errorCode: errMsg })
     emit({ type: 'workflow.failed', workflowId: wf.id, error: errMsg })
     return getWorkflow(wf.id)!

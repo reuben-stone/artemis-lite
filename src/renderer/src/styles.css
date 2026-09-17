@@ -170,6 +170,21 @@ body {
   padding: 12px 12px 8px;
 }
 
+/* ── Project items ─────────────────────────────────────────────── */
+.project-item {
+  padding: 5px 8px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+}
+.project-item:hover { background: var(--bg-hover); }
+.project-item[data-active="true"] {
+  background: var(--bg-selected);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
 /* ── Workflow rail ──────────────────────────────────────────────── */
 .workflow-rail {
   display: flex;
@@ -201,12 +216,12 @@ body {
   color: var(--text-muted);
   cursor: pointer;
   font-size: 14px;
-  padding: 0 4px;
+  padding: 2px 4px;
   line-height: 1;
   border-radius: 3px;
   opacity: 0;
   flex-shrink: 0;
-  margin-top: 1px;
+  align-self: center;
   transition: opacity 0.1s;
 }
 .workflow-rail-item:hover .workflow-delete-btn { opacity: 0.5; }

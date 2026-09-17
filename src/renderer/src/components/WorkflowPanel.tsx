@@ -138,6 +138,17 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval }: 
                                   const d = JSON.parse(step.outputData)
                                   if (d.files) return `${d.files.length} entries`
                                   if (d.created) return `Created: ${d.path}`
+                                  if (d.issues) return `${d.issues.length} issues`
+                                  if (d.pullRequests) return `${d.pullRequests.length} PRs`
+                                  if (d.issue) return `#${d.issue.number}: ${d.issue.title}`
+                                  if (d.pullRequest) return `#${d.pullRequest.number}: ${d.pullRequest.title}`
+                                  if (d.matches) return `${d.totalMatches} matches in ${d.filesSearched} files`
+                                  if (d.content !== undefined) return `${d.lines} lines`
+                                  if (d.passed !== undefined) return d.passed ? 'Passed' : 'Failed'
+                                  if (d.diff !== undefined) return `${d.changedFiles?.length ?? 0} files changed`
+                                  if (d.branchName) return d.branchName
+                                  if (d.url) return d.url
+                                  if (d.reconciled) return 'Reconciled'
                                   return 'Done'
                                 } catch { return 'Done' }
                               })()}

@@ -88,6 +88,7 @@ export function App() {
   const [contextPackets, setContextPackets] = useState<any[]>([])
   const [pendingApproval, setPendingApproval] = useState<ApprovalData | null>(null)
   const [busy, setBusy] = useState(false)
+  const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null)
 
   const activeIdRef = useRef(activeId)
@@ -95,8 +96,10 @@ export function App() {
 
   const activeWorkflow = workflows.find(w => w.id === activeId) ?? null
 
-  // Load active project
-  const refreshProject = useCallback(async () => {
+  // Load projects and active project
+  const refreshProjects = useCallback(async () => {
+    const list = await window.artemis.projects.list()
+    setProjects(list)
     const p = await window.artemis.projects.getActive()
     setActiveProject(p)
   }, [])
@@ -104,7 +107,7 @@ export function App() {
   // Load persisted workflows on mount + discover interrupted
   useEffect(() => {
     async function init() {
-      await refreshProject()
+      await refreshProjects()
       const list = await window.artemis.workflows.list()
       setWorkflows(list)
 
@@ -260,13 +263,26 @@ export function App() {
             onSelect={setActiveId}
             onDelete={handleDeleteWorkflow}
             onNew={() => setShowNewDialog(true)}
-            project={activeProject}
+            projects={projects}
+            activeProject={activeProject}
             onAddProject={async () => {
               const path = await window.artemis.projects.pickFolder()
               if (path) {
                 await window.artemis.projects.add({ path })
-                await refreshProject()
+                await refreshProjects()
               }
+            }}
+            onSwitchProject={async (id) => {
+              await window.artemis.projects.setActive({ projectId: id })
+              await refreshProjects()
+              // Reload workflows for the new project
+              const list = await window.artemis.workflows.list()
+              setWorkflows(list)
+              setActiveId(null)
+            }}
+            onRemoveProject={async (id) => {
+              await window.artemis.projects.remove({ projectId: id })
+              await refreshProjects()
             }}
           />
         </aside>

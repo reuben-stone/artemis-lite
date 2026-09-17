@@ -6,8 +6,11 @@ interface Props {
   onSelect: (id: string) => void
   onDelete: (id: string) => void
   onNew: () => void
-  project: ProjectInfo | null
+  projects: ProjectInfo[]
+  activeProject: ProjectInfo | null
   onAddProject: () => void
+  onSwitchProject: (id: string) => void
+  onRemoveProject: (id: string) => void
 }
 
 function formatTime(iso: string): string {
@@ -32,29 +35,49 @@ function statusColor(status: string): string {
   }
 }
 
-export function WorkflowRail({ workflows, activeId, onSelect, onDelete, onNew, project, onAddProject }: Props) {
+export function WorkflowRail({
+  workflows, activeId, onSelect, onDelete, onNew,
+  projects, activeProject, onAddProject, onSwitchProject, onRemoveProject
+}: Props) {
   return (
     <div className="workflow-rail">
-      {/* Project section */}
-      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-subtle)' }}>
-        <div className="section-label" style={{ padding: 0, marginBottom: 4 }}>Project</div>
-        {project ? (
-          <div style={{ fontSize: 13, color: 'var(--text-primary)' }}>
-            {project.name}
-            {project.branch && (
-              <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)', marginLeft: 6 }}>
-                {project.branch}
-              </span>
-            )}
-            {project.dirty && (
-              <span style={{ fontSize: 10, color: 'var(--status-warning)', marginLeft: 4 }}>modified</span>
-            )}
-          </div>
-        ) : (
-          <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={onAddProject}>
+      {/* Portfolio section */}
+      <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <div className="section-label">Portfolio</div>
+        <div style={{ padding: '0 8px 8px' }}>
+          {projects.map(p => (
+            <div
+              key={p.id}
+              className="project-item"
+              data-active={p.id === activeProject?.id ? 'true' : undefined}
+              onClick={() => onSwitchProject(p.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={e => { if (e.key === 'Enter') onSwitchProject(p.id) }}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                  background: p.id === activeProject?.id ? 'var(--accent)' : 'var(--text-muted)'
+                }} />
+                <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                  {p.name}
+                </span>
+                {p.branch && (
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
+                    {p.branch}
+                  </span>
+                )}
+                {p.dirty && (
+                  <span style={{ fontSize: 9, color: 'var(--status-warning)', flexShrink: 0 }}>M</span>
+                )}
+              </div>
+            </div>
+          ))}
+          <button className="btn btn-ghost" style={{ fontSize: 11, width: '100%', marginTop: 4 }} onClick={onAddProject}>
             + Add repository
           </button>
-        )}
+        </div>
       </div>
 
       <div className="section-label">Workflows</div>
@@ -79,9 +102,9 @@ export function WorkflowRail({ workflows, activeId, onSelect, onDelete, onNew, p
               tabIndex={0}
               onKeyDown={e => { if (e.key === 'Enter') onSelect(w.id) }}
             >
-              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <span style={{
-                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0, marginTop: 5,
+                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
                   background: statusColor(w.status)
                 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>

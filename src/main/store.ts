@@ -18,6 +18,8 @@ export interface ProjectRow {
   name: string
   path: string              // absolute workspace root (UNIQUE)
   remote: string | null     // git remote URL
+  githubOwner: string | null
+  githubRepo: string | null
   createdAt: string
 }
 
@@ -78,6 +80,15 @@ export interface IdempotencyRow {
   key: string
   status: string          // pending | completed
   result: string | null   // JSON
+  createdAt: string
+}
+
+export interface WorkflowResultRow {
+  id: string
+  workflowId: string
+  status: 'succeeded' | 'failed' | 'partial'
+  summary: string
+  artifacts: string | null  // JSON array
   createdAt: string
 }
 
@@ -231,22 +242,59 @@ function initDb(d: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_usage_workflow ON usage_records(workflowId);
     CREATE INDEX IF NOT EXISTS idx_approvals_workflow ON approvals(workflowId);
   `)
+
+  d.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_results (
+      id TEXT PRIMARY KEY,
+      workflowId TEXT NOT NULL UNIQUE,
+      status TEXT NOT NULL,
+      summary TEXT NOT NULL,
+      artifacts TEXT,
+      createdAt TEXT NOT NULL,
+      FOREIGN KEY (workflowId) REFERENCES workflows(id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_results_workflow ON workflow_results(workflowId);
+  `)
+
+  // ── Migrations ──────────────────────────────────────────────────
+  // Add GitHub identity columns to projects (Phase 4)
+  const cols = d.prepare("PRAGMA table_info(projects)").all() as { name: string }[]
+  const colNames = new Set(cols.map(c => c.name))
+  if (!colNames.has('githubOwner')) {
+    d.exec('ALTER TABLE projects ADD COLUMN githubOwner TEXT')
+  }
+  if (!colNames.has('githubRepo')) {
+    d.exec('ALTER TABLE projects ADD COLUMN githubRepo TEXT')
+  }
 }
 
 // ── Project CRUD ──────────────────────────────────────────────────
 
-export function createProject(name: string, path: string, remote?: string | null): ProjectRow {
+export function createProject(
+  name: string,
+  path: string,
+  remote?: string | null,
+  github?: { owner: string; repo: string } | null
+): ProjectRow {
   const d = getDb()
   const row: ProjectRow = {
     id: randomUUID(),
     name,
     path,
     remote: remote ?? null,
+    githubOwner: github?.owner ?? null,
+    githubRepo: github?.repo ?? null,
     createdAt: new Date().toISOString()
   }
-  d.prepare(`INSERT INTO projects (id, name, path, remote, createdAt) VALUES (?, ?, ?, ?, ?)`)
-    .run(row.id, row.name, row.path, row.remote, row.createdAt)
+  d.prepare(`INSERT INTO projects (id, name, path, remote, githubOwner, githubRepo, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(row.id, row.name, row.path, row.remote, row.githubOwner, row.githubRepo, row.createdAt)
   return row
+}
+
+export function updateProjectGitHub(id: string, owner: string | null, repo: string | null): void {
+  getDb().prepare('UPDATE projects SET githubOwner = ?, githubRepo = ? WHERE id = ?')
+    .run(owner, repo, id)
 }
 
 export function getProject(id: string): ProjectRow | undefined {
@@ -301,6 +349,32 @@ export function getActiveProject(): ProjectRow | undefined {
   const id = getActiveProjectId()
   if (!id) return undefined
   return getProject(id)
+}
+
+// ── Workflow Result CRUD ───────────────────────────────────────────
+
+export function createWorkflowResult(
+  workflowId: string,
+  status: 'succeeded' | 'failed' | 'partial',
+  summary: string,
+  artifacts?: unknown[]
+): WorkflowResultRow {
+  const d = getDb()
+  const row: WorkflowResultRow = {
+    id: randomUUID(),
+    workflowId,
+    status,
+    summary,
+    artifacts: artifacts ? JSON.stringify(artifacts) : null,
+    createdAt: new Date().toISOString()
+  }
+  d.prepare(`INSERT OR REPLACE INTO workflow_results (id, workflowId, status, summary, artifacts, createdAt) VALUES (?, ?, ?, ?, ?, ?)`)
+    .run(row.id, row.workflowId, row.status, row.summary, row.artifacts, row.createdAt)
+  return row
+}
+
+export function getWorkflowResult(workflowId: string): WorkflowResultRow | undefined {
+  return getDb().prepare('SELECT * FROM workflow_results WHERE workflowId = ?').get(workflowId) as WorkflowResultRow | undefined
 }
 
 // ── Workflow CRUD ──────────────────────────────────────────────────

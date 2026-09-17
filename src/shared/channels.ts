@@ -22,6 +22,8 @@ export const IpcChannel = {
   PROJECT_GET_ACTIVE: 'project:getActive',
   PROJECT_PICK_FOLDER: 'project:pickFolder',
 
+  WORKFLOW_RESULT: 'workflow:result',
+
   // Recovery
   WORKFLOW_INTERRUPTED: 'workflow:interrupted',
   WORKFLOW_RESUME: 'workflow:resume',
