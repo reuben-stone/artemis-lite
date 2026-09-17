@@ -51,6 +51,7 @@ export interface WorkflowStep {
   status: string
   attempt: number
   toolName: string | null
+  inputData: string | null
   outputData: string | null
   startedAt: string | null
   completedAt: string | null

@@ -302,6 +302,7 @@ function registerIpcHandlers(): void {
         status: s.status,
         attempt: s.attempt,
         toolName: s.toolName,
+        inputData: s.inputData,
         outputData: s.outputData,
         startedAt: s.startedAt,
         completedAt: s.completedAt

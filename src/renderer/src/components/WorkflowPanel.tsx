@@ -318,11 +318,18 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                 {/* Execute step details */}
                 {stage === 'executing' && executeSteps.length > 0 && (
                   <div className="execution-nodes">
-                    {executeSteps.map(step => (
+                    {executeSteps.map(step => {
+                      const objective = (() => {
+                        try { return JSON.parse(step.inputData ?? '{}')?.objective } catch { return null }
+                      })()
+                      return (
                       <div key={step.id} className="exec-node">
                         <div className="exec-node-left">
                           <span className="exec-node-type" data-kind={stepKind(step.type)}>TOOL</span>
                           <span className="exec-node-name">{step.toolName ?? 'unknown'}</span>
+                          {objective && (
+                            <span className="exec-node-detail" style={{ color: 'var(--text-muted)' }}>{objective}</span>
+                          )}
                           {step.status === 'completed' && step.outputData && (
                             <span className="exec-node-detail">{toolOutputSummary(step)}</span>
                           )}
@@ -334,7 +341,8 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                            step.status === 'awaiting_approval' ? '!' : '\u25CB'}
                         </div>
                       </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
 
