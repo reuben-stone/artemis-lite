@@ -58,6 +58,14 @@ const api = {
     list: () =>
       ipcRenderer.invoke(IpcChannel.APPROVAL_LIST)
   },
+  secrets: {
+    set: (input: { name: string; value: string }) =>
+      ipcRenderer.invoke(IpcChannel.SECRET_SET, input),
+    has: (input: { name: string }) =>
+      ipcRenderer.invoke(IpcChannel.SECRET_HAS, input),
+    clear: (input: { name: string }) =>
+      ipcRenderer.invoke(IpcChannel.SECRET_CLEAR, input)
+  },
   scheduler: {
     list: () =>
       ipcRenderer.invoke(IpcChannel.SCHEDULE_LIST),

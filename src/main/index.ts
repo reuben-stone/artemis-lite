@@ -1,4 +1,4 @@
-import { loadDotenv, requireAnthropicKey, getAppConfig } from './env'
+import { loadDotenv, getAppConfig } from './env'
 
 // Load .env before anything else reads process.env.
 // app.getAppPath() isn't available yet, but the working directory
@@ -34,6 +34,7 @@ import { getGitRemote, getGitStatus } from './git'
 import { GitHubClient, parseGitHubRemote } from './github'
 import type { GitHubIdentity } from './github-types'
 import { Scheduler } from './scheduler'
+import { setSecret, hasSecret, clearSecret, requireAnthropicKey as requireKey, getGitHubToken } from './secrets'
 import { existsSync } from 'fs'
 
 let win: BrowserWindow | null = null
@@ -115,14 +116,14 @@ function requireActiveProject(): { projectId: string; workspacePath: string } {
   return { projectId: project.id, workspacePath: project.path }
 }
 
-// requireAnthropicKey() and getAppConfig() are imported from ./env
+// requireKey() and getGitHubToken() from ./secrets; getAppConfig() from ./env
 
 /**
  * Build ToolContext for the active project, including GitHub client if available.
  */
 function buildToolContext(workspacePath: string): ToolContext {
   const ctx: ToolContext = { workspacePath }
-  const ghToken = process.env.GITHUB_TOKEN
+  const ghToken = getGitHubToken()
   if (ghToken) {
     ctx.githubClient = new GitHubClient(ghToken)
     // Resolve GitHub identity from active project
@@ -244,7 +245,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.WORKFLOW_START, async (_event, raw: unknown) => {
     const input = StartWorkflowInput.parse(raw)
-    const apiKey = requireAnthropicKey()
+    const apiKey = requireKey()
     const config = getAppConfig()
     const { projectId, workspacePath } = requireActiveProject()
 
@@ -350,7 +351,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.WORKFLOW_RESUME, async (_event, raw: unknown) => {
     const input = GetWorkflowInput.parse(raw)
-    const apiKey = requireAnthropicKey()
+    const apiKey = requireKey()
     const config = getAppConfig()
 
     // Resolve the project from the workflow's persisted projectId
@@ -383,6 +384,25 @@ function registerIpcHandlers(): void {
       faultInjector
     })
     return { id: wf.id, goal: wf.goal, status: wf.status }
+  })
+
+  // ── Secret handlers (set/has/clear - never expose actual value) ──
+
+  ipcMain.handle(IpcChannel.SECRET_SET, async (_event, raw: unknown) => {
+    const { name, value } = raw as { name: string; value: string }
+    setSecret(name as any, value)
+    return { set: true }
+  })
+
+  ipcMain.handle(IpcChannel.SECRET_HAS, async (_event, raw: unknown) => {
+    const { name } = raw as { name: string }
+    return { has: hasSecret(name as any) }
+  })
+
+  ipcMain.handle(IpcChannel.SECRET_CLEAR, async (_event, raw: unknown) => {
+    const { name } = raw as { name: string }
+    clearSecret(name as any)
+    return { cleared: true }
   })
 
   // ── Scheduler handlers ──────────────────────────────────────────

@@ -28,6 +28,11 @@ export const IpcChannel = {
   WORKFLOW_INTERRUPTED: 'workflow:interrupted',
   WORKFLOW_RESUME: 'workflow:resume',
 
+  // Secrets (set/has/clear only - never expose the actual key to renderer)
+  SECRET_SET: 'secret:set',
+  SECRET_HAS: 'secret:has',
+  SECRET_CLEAR: 'secret:clear',
+
   // Scheduler
   SCHEDULE_LIST: 'schedule:list',
   SCHEDULE_ADD: 'schedule:add',

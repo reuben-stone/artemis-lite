@@ -5,6 +5,7 @@ interface Props {
   usage: UsageData | null
   busy: boolean
   project: ProjectInfo | null
+  onOpenSettings: () => void
 }
 
 function formatStatus(status: string): string {
@@ -27,7 +28,7 @@ function formatCost(c: number): string {
   return `$${c.toFixed(3)}`
 }
 
-export function TopBar({ workflow, usage, busy, project }: Props) {
+export function TopBar({ workflow, usage, busy, project, onOpenSettings }: Props) {
   const totalTokens = usage ? usage.inputTokens + usage.outputTokens : 0
 
   return (
@@ -52,6 +53,14 @@ export function TopBar({ workflow, usage, busy, project }: Props) {
       </div>
 
       <div className="topbar-right">
+        <button
+          className="btn btn-ghost"
+          style={{ fontSize: 13, padding: '2px 6px', marginRight: 8 }}
+          onClick={onOpenSettings}
+          title="Settings"
+        >
+          Settings
+        </button>
         {workflow && usage ? (
           <>
             <span className="topbar-metric">{formatCost(usage.estimatedCost)}</span>

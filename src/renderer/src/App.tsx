@@ -5,6 +5,7 @@ import { WorkflowPanel } from './components/WorkflowPanel'
 import { Inspector } from './components/Inspector'
 import { BottomStrip } from './components/BottomStrip'
 import { NewWorkflowDialog } from './components/NewWorkflowDialog'
+import { SettingsDialog } from './components/SettingsDialog'
 
 export type InspectorTab = 'trace' | 'context' | 'state' | 'usage' | 'faults' | 'schedule'
 
@@ -81,6 +82,7 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('trace')
   const [showNewDialog, setShowNewDialog] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
   const [lastEvent, setLastEvent] = useState<string | null>(null)
   const [traceEvents, setTraceEvents] = useState<TraceEvent[]>([])
   const [steps, setSteps] = useState<WorkflowStep[]>([])
@@ -253,7 +255,7 @@ export function App() {
 
   return (
     <div className="app-root">
-      <TopBar workflow={activeWorkflow} usage={usage} busy={busy} project={activeProject} />
+      <TopBar workflow={activeWorkflow} usage={usage} busy={busy} project={activeProject} onOpenSettings={() => setShowSettings(true)} />
 
       <div className="app-body">
         <aside className="panel panel-left">
@@ -316,6 +318,10 @@ export function App() {
           onSubmit={handleCreate}
           onClose={() => setShowNewDialog(false)}
         />
+      )}
+
+      {showSettings && (
+        <SettingsDialog onClose={() => setShowSettings(false)} />
       )}
     </div>
   )
