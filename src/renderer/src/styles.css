@@ -153,9 +153,21 @@ body {
   background: var(--bg-app);
 }
 
+.panel-resize-handle {
+  width: 4px;
+  cursor: col-resize;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+.panel-resize-handle:hover,
+.panel-resize-handle:active {
+  background: var(--accent);
+}
+
 .panel-right {
   width: 360px;
-  min-width: 300px;
+  min-width: 280px;
   border-left: 1px solid var(--border-subtle);
   background: var(--bg-panel);
 }
