@@ -83,12 +83,19 @@ export interface IdempotencyRow {
   createdAt: string
 }
 
+export interface WorkflowArtifact {
+  toolName: string
+  objective: string
+  data: unknown
+}
+
 export interface WorkflowResultRow {
   id: string
   workflowId: string
   status: 'succeeded' | 'failed' | 'partial'
   summary: string
-  artifacts: string | null  // JSON array
+  verificationReason: string | null
+  artifacts: string | null  // JSON: WorkflowArtifact[]
   createdAt: string
 }
 
@@ -249,6 +256,7 @@ function initDb(d: Database.Database): void {
       workflowId TEXT NOT NULL UNIQUE,
       status TEXT NOT NULL,
       summary TEXT NOT NULL,
+      verificationReason TEXT,
       artifacts TEXT,
       createdAt TEXT NOT NULL,
       FOREIGN KEY (workflowId) REFERENCES workflows(id)
@@ -357,7 +365,8 @@ export function createWorkflowResult(
   workflowId: string,
   status: 'succeeded' | 'failed' | 'partial',
   summary: string,
-  artifacts?: unknown[]
+  verificationReason?: string | null,
+  artifacts?: WorkflowArtifact[]
 ): WorkflowResultRow {
   const d = getDb()
   const row: WorkflowResultRow = {
@@ -365,11 +374,12 @@ export function createWorkflowResult(
     workflowId,
     status,
     summary,
+    verificationReason: verificationReason ?? null,
     artifacts: artifacts ? JSON.stringify(artifacts) : null,
     createdAt: new Date().toISOString()
   }
-  d.prepare(`INSERT OR REPLACE INTO workflow_results (id, workflowId, status, summary, artifacts, createdAt) VALUES (?, ?, ?, ?, ?, ?)`)
-    .run(row.id, row.workflowId, row.status, row.summary, row.artifacts, row.createdAt)
+  d.prepare(`INSERT OR REPLACE INTO workflow_results (id, workflowId, status, summary, verificationReason, artifacts, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .run(row.id, row.workflowId, row.status, row.summary, row.verificationReason, row.artifacts, row.createdAt)
   return row
 }
 

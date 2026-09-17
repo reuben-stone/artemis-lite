@@ -14,7 +14,7 @@ import {
   appendContextPacket, updateContextPacketProviderTokens,
   createWorkflowResult
 } from './store'
-import type { WorkflowRow, StepRow, ApprovalRow } from './store'
+import type { WorkflowRow, StepRow, ApprovalRow, WorkflowArtifact } from './store'
 import type { ModelProvider, PlanOutput } from './model/types'
 import { executeTool, getToolDefinitions, type ToolRegistry, type ToolContext } from './tools/registry'
 import { buildContext } from './context/builder'
@@ -102,6 +102,72 @@ function trace(workflowId: string, type: string, extra: Partial<Parameters<typeo
 
 function getFaultInjector(deps: OrchestratorDeps): FaultInjector {
   return deps.faultInjector ?? noOpInjector
+}
+
+// ── Result summary builder ────────────────────────────────────────
+
+function buildResultSummary(
+  goal: string,
+  artifacts: WorkflowArtifact[],
+  verification: { pass: boolean; reason: string }
+): string {
+  if (!verification.pass) {
+    return `Verification failed: ${verification.reason}`
+  }
+
+  const parts: string[] = []
+
+  for (const a of artifacts) {
+    const d = a.data as Record<string, unknown>
+    if (d.files && Array.isArray(d.files)) {
+      const files = d.files as { path: string; type?: string }[]
+      const dirs = files.filter(f => f.type === 'directory')
+      const regular = files.filter(f => f.type !== 'directory')
+      if (dirs.length > 0 || regular.length > 0) {
+        const items = [...dirs.map(f => `${f.path}/`), ...regular.map(f => f.path)]
+        parts.push(`${a.objective}: ${items.join(', ')}`)
+      }
+    } else if (d.issues && Array.isArray(d.issues)) {
+      const issues = d.issues as { number: number; title: string; state: string }[]
+      if (issues.length === 0) {
+        parts.push('No open issues found.')
+      } else {
+        parts.push(`${issues.length} issue(s): ${issues.map(i => `#${i.number} ${i.title}`).join('; ')}`)
+      }
+    } else if (d.pullRequests && Array.isArray(d.pullRequests)) {
+      const prs = d.pullRequests as { number: number; title: string }[]
+      if (prs.length === 0) {
+        parts.push('No open pull requests.')
+      } else {
+        parts.push(`${prs.length} PR(s): ${prs.map(p => `#${p.number} ${p.title}`).join('; ')}`)
+      }
+    } else if (d.issue && typeof d.issue === 'object') {
+      const issue = d.issue as { number: number; title: string; body?: string }
+      parts.push(`Issue #${issue.number}: ${issue.title}`)
+    } else if (d.matches && Array.isArray(d.matches)) {
+      parts.push(`Found ${(d as any).totalMatches} match(es) across ${(d as any).filesSearched} files`)
+    } else if (d.content !== undefined && d.path) {
+      parts.push(`Read ${d.path} (${d.lines} lines)`)
+    } else if (d.passed !== undefined) {
+      parts.push(`${a.toolName}: ${d.passed ? 'passed' : 'failed'}`)
+    } else if (d.diff !== undefined) {
+      parts.push(`${(d.changedFiles as string[])?.length ?? 0} file(s) changed`)
+    } else if (d.commitHash) {
+      parts.push(`Committed: ${d.commitHash} - ${d.message}`)
+    } else if (d.branchName) {
+      parts.push(`Branch created: ${d.branchName}`)
+    } else if (d.url) {
+      parts.push(`PR created: ${d.url}`)
+    } else if (d.written) {
+      parts.push(`Wrote ${d.path}`)
+    }
+  }
+
+  if (parts.length === 0) {
+    return `Goal achieved: ${goal}`
+  }
+
+  return parts.join('\n')
 }
 
 // ── Context helper ─────────────────────────────────────────────────
@@ -502,14 +568,18 @@ async function runVerification(
   stepResults: Record<string, unknown>,
   existingSteps: StepRow[],
   deps: OrchestratorDeps
-): Promise<void> {
+): Promise<{ pass: boolean; reason: string }> {
   const { model, emit } = deps
   const fi = getFaultInjector(deps)
 
   const existingVerify = existingSteps.find(s => s.type === 'verify' && s.status === 'completed')
   if (existingVerify) {
     trace(wf.id, 'step.skipped_completed', { stepId: existingVerify.id, status: 'success' })
-    return
+    try {
+      return JSON.parse(existingVerify.outputData!)
+    } catch {
+      return { pass: true, reason: 'Previously verified' }
+    }
   }
 
   // Fault injection: before verification
@@ -567,6 +637,8 @@ async function runVerification(
     outputData: JSON.stringify(verifyResult.data),
     completedAt: new Date().toISOString()
   })
+
+  return verifyResult.data
 }
 
 // ── Run (new workflow) ─────────────────────────────────────────────
@@ -638,17 +710,27 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     const stepResults = await executePlanSteps(wf, plan, [], deps)
 
     // Verifying
-    await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
+    const verification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
 
     // Complete
     transition(wf, 'completed')
     const usage = getWorkflowUsage(wf.id)
 
-    // Create WorkflowResult
-    const resultSummary = plan.summary || goal
-    const failedSteps = listSteps(wf.id).filter(s => s.status === 'failed')
-    const resultStatus = failedSteps.length > 0 ? 'partial' : 'succeeded'
-    createWorkflowResult(wf.id, resultStatus, resultSummary)
+    // Build WorkflowResult from actual execution output
+    const allSteps = listSteps(wf.id)
+    const failedSteps = allSteps.filter(s => s.status === 'failed')
+    const resultStatus = !verification.pass ? 'failed' : failedSteps.length > 0 ? 'partial' : 'succeeded'
+
+    const artifacts: WorkflowArtifact[] = plan.steps
+      .filter(s => s.toolName && stepResults[s.toolName] !== undefined)
+      .map(s => ({
+        toolName: s.toolName!,
+        objective: s.objective,
+        data: stepResults[s.toolName!]
+      }))
+
+    const summary = buildResultSummary(goal, artifacts, verification)
+    createWorkflowResult(wf.id, resultStatus, summary, verification.reason, artifacts)
 
     trace(wf.id, 'workflow.completed', { status: 'success' })
     emit({ type: 'workflow.completed', workflowId: wf.id, usage })
@@ -668,7 +750,7 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
       return getWorkflow(wf.id)!
     }
     try { transition(wf, 'failed') } catch { /* already terminal */ }
-    createWorkflowResult(wf.id, 'failed', errMsg)
+    createWorkflowResult(wf.id, 'failed', errMsg, errMsg)
     trace(wf.id, 'workflow.failed', { status: 'failure', errorCode: errMsg })
     emit({ type: 'workflow.failed', workflowId: wf.id, error: errMsg })
     return getWorkflow(wf.id)!
@@ -707,6 +789,9 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
       try { plan = JSON.parse(wf.plan) }
       catch { throw new Error('Corrupt plan data — cannot recover') }
     }
+
+    let resumeVerification: { pass: boolean; reason: string } | null = null
+    let resumeStepResults: Record<string, unknown> = {}
 
     switch (wf.status) {
       case 'queued':
@@ -766,7 +851,8 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         transition(wf, 'executing')
         emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
         const stepResults = await executePlanSteps(wf, plan, listSteps(wf.id), deps)
-        await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
+        resumeVerification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
+        resumeStepResults = stepResults
         break
       }
 
@@ -788,7 +874,8 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         }
 
         const stepResults = await executePlanSteps(wf, plan, listSteps(wf.id), deps)
-        await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
+        resumeVerification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
+        resumeStepResults = stepResults
         break
       }
 
@@ -803,7 +890,8 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
           }
         }
 
-        await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
+        resumeVerification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
+        resumeStepResults = stepResults
         break
       }
 
@@ -813,6 +901,19 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
 
     transition(wf, 'completed')
     const usage = getWorkflowUsage(wf.id)
+
+    // Build WorkflowResult from actual execution output
+    if (plan && resumeVerification) {
+      const allSteps = listSteps(wf.id)
+      const failedSteps = allSteps.filter(s => s.status === 'failed')
+      const resultStatus = !resumeVerification.pass ? 'failed' : failedSteps.length > 0 ? 'partial' : 'succeeded'
+      const artifacts: WorkflowArtifact[] = plan.steps
+        .filter(s => s.toolName && resumeStepResults[s.toolName] !== undefined)
+        .map(s => ({ toolName: s.toolName!, objective: s.objective, data: resumeStepResults[s.toolName!] }))
+      const summary = buildResultSummary(goal, artifacts, resumeVerification)
+      createWorkflowResult(wf.id, resultStatus, summary, resumeVerification.reason, artifacts)
+    }
+
     trace(wf.id, 'workflow.completed', { status: 'success' })
     emit({ type: 'workflow.completed', workflowId: wf.id, usage })
     emit({ type: 'workflow.status', workflowId: wf.id, status: 'completed' })

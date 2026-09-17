@@ -1,11 +1,18 @@
 import type { WorkflowItem, WorkflowStep, ApprovalData } from '../App'
 
+export interface WorkflowResultData {
+  status: string
+  summary: string
+  verificationReason: string | null
+  artifacts: string | null // JSON
+}
+
 interface Props {
   workflow: WorkflowItem | null
   steps: WorkflowStep[]
   pendingApproval: ApprovalData | null
   onApproval: (approvalId: string, decision: 'approved' | 'rejected') => void
-  result: { status: string; summary: string } | null
+  result: WorkflowResultData | null
 }
 
 function formatTime(iso: string): string {
@@ -61,6 +68,178 @@ function stepKind(type: string): string {
   }
 }
 
+function toolOutputSummary(step: WorkflowStep): string {
+  if (!step.outputData) return 'Done'
+  try {
+    const d = JSON.parse(step.outputData)
+    if (d.files) return `${d.files.length} entries`
+    if (d.created) return `Created: ${d.path}`
+    if (d.issues) return `${d.issues.length} issues`
+    if (d.pullRequests) return `${d.pullRequests.length} PRs`
+    if (d.issue) return `#${d.issue.number}: ${d.issue.title}`
+    if (d.pullRequest) return `#${d.pullRequest.number}: ${d.pullRequest.title}`
+    if (d.matches) return `${d.totalMatches} matches in ${d.filesSearched} files`
+    if (d.content !== undefined) return `${d.lines} lines`
+    if (d.passed !== undefined) return d.passed ? 'Passed' : 'Failed'
+    if (d.diff !== undefined) return `${d.changedFiles?.length ?? 0} files changed`
+    if (d.branchName) return d.branchName
+    if (d.url) return d.url
+    if (d.reconciled) return 'Reconciled'
+    return 'Done'
+  } catch { return 'Done' }
+}
+
+// ── Result renderer ───────────────────────────────────────────────
+
+function ResultCard({ result }: { result: WorkflowResultData }) {
+  const borderColor = result.status === 'succeeded' ? 'var(--status-success)'
+    : result.status === 'partial' ? 'var(--status-warning)'
+    : 'var(--status-danger)'
+
+  const statusColor = borderColor
+
+  let artifacts: { toolName: string; objective: string; data: any }[] = []
+  try {
+    if (result.artifacts) artifacts = JSON.parse(result.artifacts)
+  } catch { /* ok */ }
+
+  return (
+    <div style={{
+      padding: '16px 20px',
+      border: `1px solid ${borderColor}`,
+      borderRadius: 'var(--radius-md)',
+      background: 'var(--bg-panel-raised)',
+      marginBottom: 24
+    }}>
+      <div style={{
+        fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em',
+        color: statusColor, marginBottom: 8
+      }}>
+        Result: {result.status}
+      </div>
+
+      {/* Summary lines */}
+      <div style={{ fontSize: 13, color: 'var(--text-primary)', lineHeight: 1.6, whiteSpace: 'pre-line' }}>
+        {result.summary}
+      </div>
+
+      {/* Artifact details */}
+      {artifacts.length > 0 && (
+        <div style={{ marginTop: 12, borderTop: '1px solid var(--border-subtle)', paddingTop: 12 }}>
+          {artifacts.map((a, i) => (
+            <ArtifactRenderer key={i} artifact={a} />
+          ))}
+        </div>
+      )}
+
+      {/* Verification reason if failed */}
+      {result.status === 'failed' && result.verificationReason && (
+        <div style={{ marginTop: 8, fontSize: 12, color: 'var(--status-danger)' }}>
+          {result.verificationReason}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ArtifactRenderer({ artifact }: { artifact: { toolName: string; objective: string; data: any } }) {
+  const d = artifact.data
+
+  // File listing
+  if (d.files && Array.isArray(d.files)) {
+    const files = d.files as { path: string; type?: string; sizeBytes?: number }[]
+    return (
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{artifact.objective}</div>
+        <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+          {files.slice(0, 20).map((f, i) => (
+            <div key={i}>
+              {f.type === 'directory' ? `${f.path}/` : f.path}
+              {f.sizeBytes !== undefined && f.type !== 'directory' && (
+                <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>{formatBytes(f.sizeBytes)}</span>
+              )}
+            </div>
+          ))}
+          {files.length > 20 && (
+            <div style={{ color: 'var(--text-muted)' }}>... and {files.length - 20} more</div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // Issues
+  if (d.issues && Array.isArray(d.issues)) {
+    if (d.issues.length === 0) {
+      return <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>No open issues found.</div>
+    }
+    return (
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{d.issues.length} issue(s)</div>
+        {d.issues.slice(0, 10).map((issue: any, i: number) => (
+          <div key={i} style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 2 }}>
+            <span style={{ color: 'var(--text-muted)' }}>#{issue.number}</span> {issue.title}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // Search results
+  if (d.matches && Array.isArray(d.matches)) {
+    return (
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>
+          {d.totalMatches} match(es) for "{d.query}" in {d.filesSearched} files
+        </div>
+        {d.matches.slice(0, 8).map((m: any, i: number) => (
+          <div key={i} style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-secondary)', marginBottom: 1 }}>
+            <span style={{ color: 'var(--text-muted)' }}>{m.file}:{m.line}</span> {m.content.slice(0, 80)}
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // Test/build results
+  if (d.passed !== undefined) {
+    return (
+      <div style={{ marginBottom: 8, fontSize: 12, color: d.passed ? 'var(--status-success)' : 'var(--status-danger)' }}>
+        {artifact.toolName}: {d.passed ? 'Passed' : `Failed (exit ${d.exitCode})`}
+      </div>
+    )
+  }
+
+  // File content
+  if (d.content !== undefined && d.path) {
+    return (
+      <div style={{ marginBottom: 8 }}>
+        <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 4 }}>{d.path} ({d.lines} lines)</div>
+      </div>
+    )
+  }
+
+  // PR
+  if (d.url) {
+    return (
+      <div style={{ marginBottom: 8, fontSize: 12 }}>
+        <span style={{ color: 'var(--status-success)' }}>PR created:</span>{' '}
+        <span style={{ color: 'var(--text-secondary)' }}>{d.url}</span>
+      </div>
+    )
+  }
+
+  return null
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
+
+// ── Main panel ────────────────────────────────────────────────────
+
 export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, result }: Props) {
   if (!workflow) {
     return (
@@ -74,6 +253,8 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
       </div>
     )
   }
+
+  const isTerminal = ['completed', 'failed', 'cancelled'].includes(workflow.status)
 
   // Group steps by stage
   const executeSteps = steps.filter(s => s.type === 'tool')
@@ -93,6 +274,16 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
           <code title={workflow.id}>{workflow.id.slice(0, 8)}</code>
         </div>
       </div>
+
+      {/* Result — the product output, shown above execution timeline */}
+      {isTerminal && result && (
+        <ResultCard result={result} />
+      )}
+
+      {/* Execution timeline — the evidence/audit trail */}
+      {(isTerminal && result) && (
+        <div className="section-label" style={{ paddingLeft: 0, paddingBottom: 4 }}>Execution</div>
+      )}
 
       <div className="stage-pipeline">
         {STAGES.map((stage, i) => {
@@ -118,7 +309,7 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                         <span className="exec-node-name">Generate structured plan</span>
                       </div>
                       <div className="exec-node-right">
-                        {planStep.status === 'completed' ? '✓' : planStep.status === 'running' ? '...' : ''}
+                        {planStep.status === 'completed' ? '\u2713' : planStep.status === 'running' ? '...' : ''}
                       </div>
                     </div>
                   </div>
@@ -133,34 +324,14 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                           <span className="exec-node-type" data-kind={stepKind(step.type)}>TOOL</span>
                           <span className="exec-node-name">{step.toolName ?? 'unknown'}</span>
                           {step.status === 'completed' && step.outputData && (
-                            <span className="exec-node-detail">
-                              {(() => {
-                                try {
-                                  const d = JSON.parse(step.outputData)
-                                  if (d.files) return `${d.files.length} entries`
-                                  if (d.created) return `Created: ${d.path}`
-                                  if (d.issues) return `${d.issues.length} issues`
-                                  if (d.pullRequests) return `${d.pullRequests.length} PRs`
-                                  if (d.issue) return `#${d.issue.number}: ${d.issue.title}`
-                                  if (d.pullRequest) return `#${d.pullRequest.number}: ${d.pullRequest.title}`
-                                  if (d.matches) return `${d.totalMatches} matches in ${d.filesSearched} files`
-                                  if (d.content !== undefined) return `${d.lines} lines`
-                                  if (d.passed !== undefined) return d.passed ? 'Passed' : 'Failed'
-                                  if (d.diff !== undefined) return `${d.changedFiles?.length ?? 0} files changed`
-                                  if (d.branchName) return d.branchName
-                                  if (d.url) return d.url
-                                  if (d.reconciled) return 'Reconciled'
-                                  return 'Done'
-                                } catch { return 'Done' }
-                              })()}
-                            </span>
+                            <span className="exec-node-detail">{toolOutputSummary(step)}</span>
                           )}
                         </div>
                         <div className="exec-node-right">
-                          {step.status === 'completed' ? '✓' :
+                          {step.status === 'completed' ? '\u2713' :
                            step.status === 'running' ? '...' :
-                           step.status === 'failed' ? '✕' :
-                           step.status === 'awaiting_approval' ? '!' : '○'}
+                           step.status === 'failed' ? '\u2715' :
+                           step.status === 'awaiting_approval' ? '!' : '\u25CB'}
                         </div>
                       </div>
                     ))}
@@ -182,18 +353,8 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                     <div style={{ fontSize: 13, marginBottom: 4 }}>{pendingApproval.action}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>{pendingApproval.summary}</div>
                     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                      <button
-                        className="btn btn-ghost"
-                        onClick={() => onApproval(pendingApproval.id, 'rejected')}
-                      >
-                        Reject
-                      </button>
-                      <button
-                        className="btn btn-primary"
-                        onClick={() => onApproval(pendingApproval.id, 'approved')}
-                      >
-                        Approve
-                      </button>
+                      <button className="btn btn-ghost" onClick={() => onApproval(pendingApproval.id, 'rejected')}>Reject</button>
+                      <button className="btn btn-primary" onClick={() => onApproval(pendingApproval.id, 'approved')}>Approve</button>
                     </div>
                   </div>
                 )}
@@ -217,7 +378,7 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                         )}
                       </div>
                       <div className="exec-node-right">
-                        {verifyStep.status === 'completed' ? '✓' : verifyStep.status === 'running' ? '...' : ''}
+                        {verifyStep.status === 'completed' ? '\u2713' : verifyStep.status === 'running' ? '...' : ''}
                       </div>
                     </div>
                   </div>
@@ -231,31 +392,10 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                   <div className="stage-description">Awaiting human approval</div>
                 )}
 
-                {/* Result summary */}
-                {stage === 'completed' && workflow.status === 'completed' && (
-                  <div style={{ marginTop: 8 }}>
-                    {result ? (
-                      <div style={{
-                        padding: '12px 16px',
-                        border: `1px solid ${result.status === 'succeeded' ? 'var(--status-success)' : result.status === 'partial' ? 'var(--status-warning)' : 'var(--status-danger)'}`,
-                        borderRadius: 'var(--radius-md)',
-                        background: 'var(--bg-panel-raised)'
-                      }}>
-                        <div style={{
-                          fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6,
-                          color: result.status === 'succeeded' ? 'var(--status-success)' : result.status === 'partial' ? 'var(--status-warning)' : 'var(--status-danger)'
-                        }}>
-                          Result: {result.status}
-                        </div>
-                        <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                          {result.summary}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="stage-description" style={{ color: 'var(--status-success)' }}>
-                        Workflow completed successfully
-                      </div>
-                    )}
+                {/* Completion tick */}
+                {stage === 'completed' && workflow.status === 'completed' && !result && (
+                  <div className="stage-description" style={{ color: 'var(--status-success)' }}>
+                    Workflow completed successfully
                   </div>
                 )}
               </div>
@@ -264,25 +404,13 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
         })}
 
         {/* Failed state */}
-        {workflow.status === 'failed' && (
+        {workflow.status === 'failed' && !result && (
           <div className="stage-node">
             <div className="stage-indicator">
               <span className="stage-dot" data-status="failed" />
             </div>
             <div className="stage-content">
               <span className="stage-title" style={{ color: 'var(--status-danger)' }}>Failed</span>
-              {result && (
-                <div style={{
-                  marginTop: 8, padding: '12px 16px',
-                  border: '1px solid var(--status-danger)',
-                  borderRadius: 'var(--radius-md)',
-                  background: 'var(--bg-panel-raised)'
-                }}>
-                  <div style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.5 }}>
-                    {result.summary}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}

@@ -88,7 +88,7 @@ export function App() {
   const [steps, setSteps] = useState<WorkflowStep[]>([])
   const [usage, setUsage] = useState<UsageData | null>(null)
   const [contextPackets, setContextPackets] = useState<any[]>([])
-  const [workflowResult, setWorkflowResult] = useState<{ status: string; summary: string } | null>(null)
+  const [workflowResult, setWorkflowResult] = useState<{ status: string; summary: string; verificationReason: string | null; artifacts: string | null } | null>(null)
   const [pendingApproval, setPendingApproval] = useState<ApprovalData | null>(null)
   const [busy, setBusy] = useState(false)
   const [projects, setProjects] = useState<ProjectInfo[]>([])
