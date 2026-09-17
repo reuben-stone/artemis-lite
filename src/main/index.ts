@@ -23,7 +23,8 @@ import {
   listTraceEvents, getWorkflowUsage, listPendingApprovals, listContextPackets,
   createProject, getProject, listProjects, removeProject,
   getActiveProject, getActiveProjectId, setActiveProjectId,
-  getProjectByPath, updateProjectGitHub, getWorkflowResult
+  getProjectByPath, updateProjectGitHub, getWorkflowResult,
+  getDb, createWorkflow
 } from './store'
 import { runWorkflow, resumeWorkflow, discoverInterruptedWorkflows, resolveWorkflowApproval } from './workflow'
 import { AnthropicProvider } from './model/anthropic'
@@ -455,11 +456,10 @@ app.whenReady().then(() => {
 
   // Initialize scheduler — creates workflows on schedule
   try {
-    const { getDb, createWorkflow: createWf } = require('./store')
     scheduler = new Scheduler({
       getDb,
       createWorkflowFn: (goal: string, projectId: string | null) => {
-        const wf = createWf(goal, projectId)
+        const wf = createWorkflow(goal, projectId)
         emitToRenderer({ type: 'workflow.status', workflowId: wf.id, status: 'queued' })
       }
     })
