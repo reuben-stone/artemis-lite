@@ -64,6 +64,10 @@ const api = {
     issues: (input: { projectSlug: string }) =>
       ipcRenderer.invoke(IpcChannel.SENTRY_ISSUES, input)
   },
+  github: {
+    projectPrs: (input: { owner: string; repo: string }) =>
+      ipcRenderer.invoke(IpcChannel.GITHUB_PROJECT_PRS, input)
+  },
   analytics: {
     summary: (input: { propertyId: string; label: string }) =>
       ipcRenderer.invoke(IpcChannel.ANALYTICS_SUMMARY, input)

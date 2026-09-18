@@ -34,9 +34,10 @@ export const IpcChannel = {
   SECRET_HAS: 'secret:has',
   SECRET_CLEAR: 'secret:clear',
 
-  // Sentry + Analytics
+  // Sentry + Analytics + GitHub PR
   SENTRY_ISSUES: 'sentry:issues',
   ANALYTICS_SUMMARY: 'analytics:summary',
+  GITHUB_PROJECT_PRS: 'github:projectPrs',
 
   // Scheduler
   SCHEDULE_LIST: 'schedule:list',

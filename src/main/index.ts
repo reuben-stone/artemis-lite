@@ -436,6 +436,20 @@ function registerIpcHandlers(): void {
     }
   })
 
+  ipcMain.handle(IpcChannel.GITHUB_PROJECT_PRS, async (_event, raw: unknown) => {
+    const { owner, repo } = raw as { owner: string; repo: string }
+    const token = getGitHubToken()
+    if (!token) return { pullRequests: [], error: 'GitHub not configured' }
+    try {
+      const { GitHubClient } = require('./github')
+      const client = new GitHubClient(token)
+      const prs = await client.listPullRequests({ owner, repo }, { state: 'open' })
+      return { pullRequests: prs }
+    } catch (err: any) {
+      return { pullRequests: [], error: err.message }
+    }
+  })
+
   // ── Secret handlers (set/has/clear - never expose actual value) ──
 
   ipcMain.handle(IpcChannel.SECRET_SET, async (_event, raw: unknown) => {
