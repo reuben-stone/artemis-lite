@@ -298,28 +298,55 @@ export function MorningReview({ onClose, onSelectWorkflow }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {projectStates.map(ps => (
-                      <tr key={ps.project.id} style={{ borderBottom: '1px solid rgba(42,43,48,0.4)' }}>
-                        <td style={{ padding: '8px 0', color: 'var(--text-primary)', fontWeight: 500, fontSize: 12 }}>{ps.project.name}</td>
-                        <td style={{ padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{ps.project.branch || '-'}</td>
-                        <td style={{ padding: '8px 12px', fontSize: 11, color: ps.sentryIssues.length > 0 ? '#eab308' : 'var(--text-muted)' }}>
-                          {ps.sentryIssues.length > 0 ? `${ps.sentryIssues.length} issue${ps.sentryIssues.length !== 1 ? 's' : ''}` : 'Clear'}
-                        </td>
-                        <td style={{ padding: '8px 0', textAlign: 'right', fontSize: 11 }}>
-                          {ps.analytics.length > 0 ? ps.analytics.map((a, i) => (
-                            <span key={a.label} style={{ color: 'var(--text-secondary)' }}>
-                              {i > 0 && <span style={{ color: 'var(--text-muted)' }}> / </span>}
-                              {a.sessions.toLocaleString()}
-                              {a.sessionsChange !== null && a.sessionsChange !== 0 && (
-                                <span style={{ color: a.sessionsChange > 0 ? '#22c55e' : 'var(--text-muted)', marginLeft: 4 }}>
-                                  {a.sessionsChange > 0 ? '+' : ''}{a.sessionsChange}%
-                                </span>
-                              )}
-                            </span>
-                          )) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
-                        </td>
-                      </tr>
-                    ))}
+                    {projectStates.flatMap(ps => {
+                      // Parse mappings to expand monorepos
+                      let mappings: Array<{ label: string; sentrySlug: string; gaPropertyId: string; subdir: string }> = []
+                      try {
+                        const raw = ps.project.sentryProject
+                        if (raw && raw.startsWith('[')) mappings = JSON.parse(raw)
+                      } catch { /* ok */ }
+
+                      // If project has mappings, show one row per mapping (monorepo sub-projects)
+                      if (mappings.length > 0) {
+                        return mappings.map((m, i) => {
+                          const sentryCount = ps.sentryIssues.filter(s => s.projectSlug === m.sentrySlug).length
+                          const analytics = ps.analytics.find(a => a.label === m.label)
+                          return (
+                            <tr key={`${ps.project.id}-${i}`} style={{ borderBottom: '1px solid rgba(42,43,48,0.4)' }}>
+                              <td style={{ padding: '8px 0', color: 'var(--text-primary)', fontWeight: 500, fontSize: 12 }}>
+                                {m.label || ps.project.name}
+                              </td>
+                              <td style={{ padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{ps.project.branch || '-'}</td>
+                              <td style={{ padding: '8px 12px', fontSize: 11, color: sentryCount > 0 ? '#eab308' : 'var(--text-muted)' }}>
+                                {sentryCount > 0 ? `${sentryCount} issue${sentryCount !== 1 ? 's' : ''}` : 'Clear'}
+                              </td>
+                              <td style={{ padding: '8px 0', textAlign: 'right', fontSize: 11 }}>
+                                {analytics ? (
+                                  <span style={{ color: 'var(--text-secondary)' }}>
+                                    {analytics.sessions.toLocaleString()}
+                                    {analytics.sessionsChange !== null && analytics.sessionsChange !== 0 && (
+                                      <span style={{ color: analytics.sessionsChange > 0 ? '#22c55e' : 'var(--text-muted)', marginLeft: 4 }}>
+                                        {analytics.sessionsChange > 0 ? '+' : ''}{analytics.sessionsChange}%
+                                      </span>
+                                    )}
+                                  </span>
+                                ) : <span style={{ color: 'var(--text-muted)' }}>-</span>}
+                              </td>
+                            </tr>
+                          )
+                        })
+                      }
+
+                      // No mappings - show as single row
+                      return [(
+                        <tr key={ps.project.id} style={{ borderBottom: '1px solid rgba(42,43,48,0.4)' }}>
+                          <td style={{ padding: '8px 0', color: 'var(--text-primary)', fontWeight: 500, fontSize: 12 }}>{ps.project.name}</td>
+                          <td style={{ padding: '8px 12px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{ps.project.branch || '-'}</td>
+                          <td style={{ padding: '8px 12px', fontSize: 11, color: 'var(--text-muted)' }}>Clear</td>
+                          <td style={{ padding: '8px 0', textAlign: 'right', fontSize: 11, color: 'var(--text-muted)' }}>-</td>
+                        </tr>
+                      )]
+                    })}
                   </tbody>
                 </table>
               </div>
