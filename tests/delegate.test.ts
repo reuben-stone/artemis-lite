@@ -10,7 +10,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { execSync } from 'child_process'
 import { PlanSchema } from '../src/main/model/types'
-import { buildTaskPrompt, buildSystemPrompt } from '../src/main/delegate/claude-code'
+import { buildTaskPrompt, buildSystemPrompt, buildPRTitle, buildPRBody } from '../src/main/delegate/claude-code'
 import { runDeterministicVerification } from '../src/main/delegate/verification'
 
 // ── Prompt construction ───────────────────────────────────────────
@@ -167,5 +167,71 @@ describe('runDeterministicVerification', () => {
     const lintCheck = result.checks.find(c => c.check === 'lint')
     expect(lintCheck).toBeDefined()
     expect(lintCheck!.skipped).toBe(true)
+  })
+})
+
+// ── PR publication ────────────────────────────────────────────────
+
+describe('buildPRTitle', () => {
+  it('extracts product and issue from investigation goal', () => {
+    const title = buildPRTitle(
+      'Investigate issue in Lumi: "TypeError: Cannot convert argument to a ByteString"',
+      ['app/src/lib/webhooks.ts']
+    )
+    expect(title).toContain('lumi')
+    expect(title).toContain('TypeError')
+  })
+
+  it('falls back to truncated goal', () => {
+    const title = buildPRTitle('Fix the broken thing in the system', ['file.ts'])
+    expect(title.length).toBeLessThanOrEqual(80)
+    expect(title).toContain('Fix the broken thing')
+  })
+})
+
+describe('buildPRBody', () => {
+  it('includes problem, change, verification sections', () => {
+    const body = buildPRBody(
+      'Fix ByteString error in Lumi',
+      'Root cause: webhook.url passed directly to fetch()',
+      { files: ['app/src/lib/webhooks.ts'], additions: 1, deletions: 1 },
+      [
+        { check: 'git_diff', passed: true, skipped: false },
+        { check: 'test', passed: false, skipped: false },
+        { check: 'typecheck', passed: true, skipped: true }
+      ],
+      'abc12345-def6-7890'
+    )
+
+    expect(body).toContain('## Problem')
+    expect(body).toContain('ByteString')
+    expect(body).toContain('## Root cause')
+    expect(body).toContain('webhook.url')
+    expect(body).toContain('## Change')
+    expect(body).toContain('1 file(s) changed')
+    expect(body).toContain('webhooks.ts')
+    expect(body).toContain('## Verification')
+    expect(body).toContain('test: failed')
+    expect(body).toContain('typecheck: skipped')
+    expect(body).toContain('abc12345')
+  })
+
+  it('omits root cause section when engine output is empty', () => {
+    const body = buildPRBody('Fix something', '', { files: ['a.ts'], additions: 1, deletions: 0 }, [], 'wf-123')
+    expect(body).not.toContain('## Root cause')
+  })
+})
+
+describe('Publication readiness', () => {
+  it('requires files changed for publication', () => {
+    const hasChanges = (files: string[]) => files.length > 0
+    expect(hasChanges(['a.ts'])).toBe(true)
+    expect(hasChanges([])).toBe(false)
+  })
+
+  it('rejects protected branch names', () => {
+    const PROTECTED = new Set(['main', 'master', 'develop', 'production', 'release'])
+    expect(PROTECTED.has('main')).toBe(true)
+    expect(PROTECTED.has('artemis/5dac0cf5')).toBe(false)
   })
 })

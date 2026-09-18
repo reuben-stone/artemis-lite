@@ -170,10 +170,10 @@ Return ONLY the JSON object, no markdown fences or explanation.`
   // Present step results keyed by plan step ID with objective for clarity
   const evidence: Record<string, { objective: string; toolName?: string; result: unknown }> = {}
   for (const s of request.plan.steps) {
-    if (s.toolName && request.stepResults[s.id] !== undefined) {
+    if (request.stepResults[s.id] !== undefined) {
       evidence[s.id] = {
         objective: s.objective,
-        toolName: s.toolName,
+        toolName: s.toolName ?? s.preferredAction,
         result: request.stepResults[s.id]
       }
     }

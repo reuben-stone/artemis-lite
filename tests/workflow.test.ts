@@ -141,7 +141,8 @@ describe('VerificationSchema', () => {
     expect(VerificationSchema.safeParse({ reason: 'No pass field' }).success).toBe(false)
   })
 
-  it('rejects reason over 500 chars', () => {
-    expect(VerificationSchema.safeParse({ pass: true, reason: 'x'.repeat(501) }).success).toBe(false)
+  it('truncates reason to 500 chars', () => {
+    const result = VerificationSchema.parse({ pass: true, reason: 'x'.repeat(600) })
+    expect(result.reason.length).toBe(500)
   })
 })

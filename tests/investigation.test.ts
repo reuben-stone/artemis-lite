@@ -80,20 +80,26 @@ describe('InvestigationActionSchema', () => {
     })).toThrow()
   })
 
-  it('enforces objective max length', () => {
-    expect(() => InvestigationActionSchema.parse({
+  it('truncates objective to max length', () => {
+    const result = InvestigationActionSchema.parse({
       action: 'tool_call',
       toolName: 'read_file',
-      objective: 'x'.repeat(301)
-    })).toThrow()
+      objective: 'x'.repeat(400)
+    })
+    if (result.action === 'tool_call') {
+      expect(result.objective.length).toBe(300)
+    }
   })
 
-  it('enforces conclusion max length', () => {
-    expect(() => InvestigationActionSchema.parse({
+  it('truncates conclusion to max length', () => {
+    const result = InvestigationActionSchema.parse({
       action: 'stop',
-      conclusion: 'x'.repeat(501),
+      conclusion: 'x'.repeat(600),
       outcome: 'supported'
-    })).toThrow()
+    })
+    if (result.action === 'stop') {
+      expect(result.conclusion.length).toBe(500)
+    }
   })
 })
 

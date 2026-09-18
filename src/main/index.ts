@@ -353,6 +353,52 @@ function registerIpcHandlers(): void {
     return { workflowId: input.workflowId, result: result ?? null }
   })
 
+  ipcMain.handle(IpcChannel.WORKFLOW_PUBLISH_PR, async (_event, raw: unknown) => {
+    const { workflowId } = raw as { workflowId: string }
+    const wf = getWorkflow(workflowId)
+    if (!wf) throw new Error('Workflow not found')
+
+    // Find the delegation step output
+    const steps = listSteps(workflowId)
+    const delegateStep = steps.find(s => s.toolName === 'delegate_engineering' && s.status === 'completed')
+    if (!delegateStep?.outputData) throw new Error('No completed delegation step found')
+
+    const delegateResult = JSON.parse(delegateStep.outputData)
+    const observed = delegateResult.observed
+    if (!observed?.diff?.files?.length) throw new Error('No changes to publish')
+
+    // Get project GitHub identity
+    const project = getActiveProject()
+    if (!project?.githubOwner || !project?.githubRepo) throw new Error('Project has no GitHub identity')
+
+    const ghToken = getGitHubToken()
+    if (!ghToken) throw new Error('GitHub token not configured')
+
+    const { publishWorkflowPR } = await import('./delegate/claude-code')
+    const result = await publishWorkflowPR({
+      workflowId,
+      worktreePath: observed.worktreePath,
+      branchName: observed.branchName,
+      baseCommit: observed.baseCommit,
+      goal: wf.goal,
+      engineOutput: delegateResult.engine?.output ?? '',
+      diff: observed.diff,
+      checks: observed.checks.map((c: any) => ({ check: c.check, passed: c.passed, skipped: c.skipped })),
+      hasUncommittedChanges: observed.gitState?.hasUncommittedChanges ?? false,
+      githubOwner: project.githubOwner,
+      githubRepo: project.githubRepo,
+      githubToken: ghToken
+    })
+
+    // Clean up worktree after successful publication
+    try {
+      const { removeWorktree } = await import('./delegate/claude-code')
+      await removeWorktree(project.path, observed.worktreePath, observed.branchName)
+    } catch { /* best effort */ }
+
+    return result
+  })
+
   ipcMain.handle(IpcChannel.APPROVAL_RESOLVE, async (_event, raw: unknown) => {
     const input = ResolveApprovalInput.parse(raw)
     resolveWorkflowApproval(input.approvalId, input.decision)

@@ -13,6 +13,8 @@ interface Props {
   pendingApproval: ApprovalData | null
   onApproval: (approvalId: string, decision: 'approved' | 'rejected') => void
   result: WorkflowResultData | null
+  onPublishPR?: (workflowId: string) => void
+  publishedPR?: { prNumber: number; prUrl: string; branch: string; repository: string } | null
 }
 
 function formatTime(iso: string): string {
@@ -240,7 +242,7 @@ function formatBytes(bytes: number): string {
 
 // ── Main panel ────────────────────────────────────────────────────
 
-export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, result }: Props) {
+export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, result, onPublishPR, publishedPR }: Props) {
   if (!workflow) {
     return (
       <div className="workflow-panel">
@@ -279,6 +281,57 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
       {isTerminal && result && (
         <ResultCard result={result} />
       )}
+
+      {/* Publication card — shown when delegation produced changes */}
+      {isTerminal && result?.status === 'succeeded' && (() => {
+        const delegateStep = steps.find(s => s.toolName === 'delegate_engineering' && s.status === 'completed')
+        if (!delegateStep?.outputData) return null
+        try {
+          const data = JSON.parse(delegateStep.outputData)
+          const obs = data.observed
+          if (!obs?.diff?.files?.length) return null
+
+          if (publishedPR) {
+            return (
+              <div style={{ padding: '16px 20px', border: '1px solid var(--accent)', borderRadius: 'var(--radius-md)', background: 'var(--bg-panel-raised)', marginBottom: 24 }}>
+                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--accent)', marginBottom: 8 }}>Published</div>
+                <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 4 }}>PR #{publishedPR.prNumber} created on {publishedPR.repository}</div>
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>{publishedPR.branch}</div>
+                <a href={publishedPR.prUrl} target="_blank" rel="noopener" style={{ fontSize: 12, color: 'var(--accent)', textDecoration: 'none' }}>View PR &rarr;</a>
+              </div>
+            )
+          }
+
+          const checks = obs.checks ?? []
+          return (
+            <div style={{ padding: '16px 20px', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-md)', background: 'var(--bg-panel-raised)', marginBottom: 24 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 8 }}>Change prepared</div>
+              <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 8 }}>
+                {obs.diff.files.length} file(s) changed, +{obs.diff.additions} -{obs.diff.deletions}
+              </div>
+              <div style={{ marginBottom: 12 }}>
+                {checks.map((c: any, i: number) => (
+                  <div key={i} style={{ fontSize: 11, color: c.skipped ? 'var(--text-muted)' : c.passed ? '#22c55e' : 'var(--status-danger)' }}>
+                    {c.check}: {c.skipped ? 'skipped' : c.passed ? 'passed' : 'failed'}
+                  </div>
+                ))}
+              </div>
+              {obs.diff.files.length <= 5 && (
+                <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  {obs.diff.files.map((f: string, i: number) => <div key={i}>{f}</div>)}
+                </div>
+              )}
+              <button
+                className="btn btn-primary"
+                style={{ fontSize: 12 }}
+                onClick={() => onPublishPR?.(workflow.id)}
+              >
+                Review &amp; Publish PR
+              </button>
+            </div>
+          )
+        } catch { return null }
+      })()}
 
       {/* Execution timeline — the evidence/audit trail */}
       {(isTerminal && result) && (

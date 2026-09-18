@@ -121,7 +121,57 @@ export class GitHubClient {
     return raw.map(mapComment)
   }
 
+  private async post<T>(path: string, body: Record<string, unknown>): Promise<T> {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+
+    try {
+      const res = await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new GitHubError(`GitHub API ${res.status}: ${text}`, res.status)
+      }
+
+      return (await res.json()) as T
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
   // ── Pull Requests ─────────────────────────────────────────────
+
+  async findPRByBranch(id: GitHubIdentity, branch: string): Promise<GitHubPullRequest | null> {
+    const raw = await this.request<RawPullRequest[]>(
+      `/repos/${id.owner}/${id.repo}/pulls`,
+      { head: `${id.owner}:${branch}`, state: 'open' }
+    )
+    return raw.length > 0 ? mapPR(raw[0]) : null
+  }
+
+  async createPullRequest(id: GitHubIdentity, opts: {
+    title: string
+    body: string
+    head: string
+    base: string
+    draft: boolean
+  }): Promise<GitHubPullRequest> {
+    const raw = await this.post<RawPullRequest>(
+      `/repos/${id.owner}/${id.repo}/pulls`,
+      { title: opts.title, body: opts.body, head: opts.head, base: opts.base, draft: opts.draft }
+    )
+    return mapPR(raw)
+  }
 
   async listPullRequests(
     id: GitHubIdentity,

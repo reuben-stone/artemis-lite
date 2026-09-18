@@ -1029,7 +1029,7 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     const isDelegatedEngineering = plan.steps.length === 1 && plan.steps[0].preferredAction === 'delegate_engineering'
     const stepResults = isDelegatedEngineering
       ? await executeDelegatedEngineering(wf, plan, {
-          workspacePath, emit,
+          workspacePath: deps.workspacePath, emit,
           waitForApproval: (wfId, approval, e) => waitForApproval(wfId, approval, e)
         })
       : isInvestigation
@@ -1181,7 +1181,7 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         const isDelegatedReplan = plan.steps.length === 1 && plan.steps[0].preferredAction === 'delegate_engineering'
         const stepResults = isDelegatedReplan
           ? await executeDelegatedEngineering(wf, plan, {
-              workspacePath, emit,
+              workspacePath: deps.workspacePath, emit,
               waitForApproval: (wfId, approval, e) => waitForApproval(wfId, approval, e)
             })
           : isInvestigationReplan
@@ -1213,7 +1213,7 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         const isDelegatedResume = plan.steps.length === 1 && plan.steps[0].preferredAction === 'delegate_engineering'
         const stepResults = isDelegatedResume
           ? await executeDelegatedEngineering(wf, plan, {
-              workspacePath, emit,
+              workspacePath: deps.workspacePath, emit,
               waitForApproval: (wfId, approval, e) => waitForApproval(wfId, approval, e)
             })
           : isInvestigationResume

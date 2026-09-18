@@ -100,6 +100,7 @@ export function App() {
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null)
   const [prs, setPrs] = useState<ReviewPR[]>([])
+  const [publishedPR, setPublishedPR] = useState<{ prNumber: number; prUrl: string; branch: string; repository: string } | null>(null)
 
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
@@ -332,6 +333,21 @@ export function App() {
             pendingApproval={pendingApproval}
             onApproval={handleApproval}
             result={workflowResult}
+            onPublishPR={async (wfId) => {
+              try {
+                setBusy(true)
+                setLastEvent('Publishing PR...')
+                const result = await window.artemis.workflows.publishPR({ workflowId: wfId })
+                setPublishedPR(result)
+                setLastEvent(`PR #${result.prNumber} created`)
+                refreshPrs()
+              } catch (err: any) {
+                setLastEvent(`Publication failed: ${err.message ?? String(err)}`)
+              } finally {
+                setBusy(false)
+              }
+            }}
+            publishedPR={publishedPR}
           />
         </main>
 

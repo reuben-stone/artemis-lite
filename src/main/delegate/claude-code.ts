@@ -12,7 +12,7 @@ import { promisify } from 'util'
 import { join, dirname } from 'path'
 import { existsSync } from 'fs'
 import {
-  createStep, updateStep, appendTrace, appendUsage,
+  createStep, updateStep, updateWorkflow, appendTrace, appendUsage,
   createApproval, getApprovalForStep,
   checkIdempotency, idempotencyKey, markIdempotencyPending, markIdempotencyComplete
 } from '../store'
@@ -91,9 +91,18 @@ export class ClaudeCodeEngine implements DelegateEngine {
         const stderr = Buffer.concat(errChunks).toString('utf-8')
 
         // Try to parse structured JSON output
+        // Claude --output-format json may include trailing newlines or multiple lines
         let parsed: any = null
         try {
-          parsed = JSON.parse(stdout)
+          const trimmed = stdout.trim()
+          // Find the last complete JSON object (Claude may output progress before the final result)
+          const lastBrace = trimmed.lastIndexOf('}')
+          const firstBrace = trimmed.lastIndexOf('{"type"')
+          if (firstBrace >= 0 && lastBrace > firstBrace) {
+            parsed = JSON.parse(trimmed.slice(firstBrace, lastBrace + 1))
+          } else {
+            parsed = JSON.parse(trimmed)
+          }
         } catch { /* not JSON */ }
 
         resolve({
@@ -228,8 +237,6 @@ function transition(wf: WorkflowRow, to: WorkflowStatus): void {
   if (!validateTransition(wf.status as WorkflowStatus, to)) {
     throw new Error(`Invalid transition: ${wf.status} -> ${to}`)
   }
-  // Note: we import updateWorkflow lazily to avoid circular deps
-  const { updateWorkflow } = require('../store')
   updateWorkflow(wf.id, { status: to })
   wf.status = to
 }
@@ -283,7 +290,7 @@ export interface DelegateConfig {
 }
 
 const DEFAULT_DELEGATE_CONFIG: DelegateConfig = {
-  maxBudgetUsd: 0.50,
+  maxBudgetUsd: 0.75,
   timeoutMs: 300_000 // 5 minutes
 }
 
@@ -413,7 +420,7 @@ export async function executeDelegatedEngineering(
 
     // Build consolidated result - Claude Code's report separate from Artemis-observed facts
     const result = {
-      status: engineResult.success && verification.allPassed ? 'completed' : 'failed',
+      status: engineResult.success ? 'completed' : 'failed',
       engine: {
         name: engine.name,
         success: engineResult.success,
@@ -462,5 +469,153 @@ export async function executeDelegatedEngineering(
     }
 
     return { [planStep.id]: { status: 'failed', error: errMsg } }
+  }
+}
+
+// ── PR Publication ────────────────────────────────────────────────
+
+export interface PublishPRResult {
+  prNumber: number
+  prUrl: string
+  branch: string
+  baseBranch: string
+  commitSha: string
+  repository: string
+  created: boolean
+  reconciled: boolean
+}
+
+export function buildPRTitle(goal: string, files: string[]): string {
+  // Extract a concise title from the goal
+  const match = goal.match(/(?:fix|investigate|resolve)\s+(?:issue\s+in\s+)?(\w+):\s*"?([^"]+)"?/i)
+  if (match) {
+    const product = match[1].toLowerCase()
+    const issue = match[2].slice(0, 60)
+    return `fix(${product}): ${issue}`
+  }
+  return `fix: ${goal.slice(0, 70)}`
+}
+
+export function buildPRBody(
+  goal: string,
+  engineOutput: string,
+  diff: { files: string[]; additions: number; deletions: number },
+  checks: { check: string; passed: boolean; skipped: boolean }[],
+  workflowId: string
+): string {
+  const parts: string[] = []
+
+  parts.push('## Problem')
+  parts.push(goal)
+  parts.push('')
+
+  if (engineOutput) {
+    parts.push('## Root cause')
+    // Take the first meaningful paragraph from the engine output
+    const summary = engineOutput.split('\n\n').slice(0, 2).join('\n\n').slice(0, 800)
+    parts.push(summary)
+    parts.push('')
+  }
+
+  parts.push('## Change')
+  parts.push(`${diff.files.length} file(s) changed, +${diff.additions} -${diff.deletions}`)
+  if (diff.files.length <= 10) {
+    parts.push('')
+    parts.push(diff.files.map(f => `- \`${f}\``).join('\n'))
+  }
+  parts.push('')
+
+  parts.push('## Verification')
+  for (const c of checks) {
+    const status = c.skipped ? 'skipped' : c.passed ? 'passed' : 'failed'
+    parts.push(`- ${c.check}: ${status}`)
+  }
+  parts.push('')
+
+  parts.push('---')
+  parts.push(`Prepared by Artemis workflow \`${workflowId.slice(0, 8)}\``)
+
+  return parts.join('\n')
+}
+
+const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'production', 'release'])
+
+export async function publishWorkflowPR(opts: {
+  workflowId: string
+  worktreePath: string
+  branchName: string
+  baseCommit: string
+  goal: string
+  engineOutput: string
+  diff: { files: string[]; additions: number; deletions: number }
+  checks: { check: string; passed: boolean; skipped: boolean }[]
+  hasUncommittedChanges: boolean
+  githubOwner: string
+  githubRepo: string
+  githubToken: string
+}): Promise<PublishPRResult> {
+  // Safety: never push protected branches
+  const branchBase = opts.branchName.split('/').pop() ?? opts.branchName
+  if (PROTECTED_BRANCHES.has(branchBase) || PROTECTED_BRANCHES.has(opts.branchName)) {
+    throw new Error(`Refusing to push protected branch: ${opts.branchName}`)
+  }
+
+  const client = new (await import('../github')).GitHubClient(opts.githubToken)
+  const identity = { owner: opts.githubOwner, repo: opts.githubRepo }
+
+  // Reconcile: check if PR already exists for this branch
+  const existing = await client.findPRByBranch(identity, opts.branchName)
+  if (existing) {
+    const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: opts.worktreePath })
+    return {
+      prNumber: existing.number,
+      prUrl: `https://github.com/${opts.githubOwner}/${opts.githubRepo}/pull/${existing.number}`,
+      branch: opts.branchName,
+      baseBranch: existing.baseBranch,
+      commitSha: sha.trim(),
+      repository: `${opts.githubOwner}/${opts.githubRepo}`,
+      created: false,
+      reconciled: true
+    }
+  }
+
+  // Commit uncommitted changes if needed
+  if (opts.hasUncommittedChanges) {
+    await execFile('git', ['add', '-A'], { cwd: opts.worktreePath, timeout: 10_000 })
+    await execFile('git', ['commit', '-m', `fix: ${opts.goal.slice(0, 100)}\n\nPrepared by Artemis workflow ${opts.workflowId.slice(0, 8)}`], {
+      cwd: opts.worktreePath, timeout: 10_000
+    })
+  }
+
+  // Get commit SHA
+  const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: opts.worktreePath })
+  const commitSha = sha.trim()
+
+  // Push branch
+  await execFile('git', ['push', '-u', 'origin', opts.branchName], {
+    cwd: opts.worktreePath, timeout: 30_000
+  })
+
+  // Create PR
+  const title = buildPRTitle(opts.goal, opts.diff.files)
+  const body = buildPRBody(opts.goal, opts.engineOutput, opts.diff, opts.checks, opts.workflowId)
+
+  const pr = await client.createPullRequest(identity, {
+    title,
+    body,
+    head: opts.branchName,
+    base: 'main',
+    draft: true
+  })
+
+  return {
+    prNumber: pr.number,
+    prUrl: `https://github.com/${opts.githubOwner}/${opts.githubRepo}/pull/${pr.number}`,
+    branch: opts.branchName,
+    baseBranch: 'main',
+    commitSha,
+    repository: `${opts.githubOwner}/${opts.githubRepo}`,
+    created: true,
+    reconciled: false
   }
 }

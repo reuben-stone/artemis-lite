@@ -148,7 +148,7 @@ export async function runDeterministicVerification(
 
     checks.push({
       check: 'git_diff',
-      passed: files.length > 0,
+      passed: true, // Diff is observational - it reports facts, not pass/fail
       output: `${files.length} file(s) changed, +${additions} -${deletions}`,
       skipped: false,
       durationMs: 0

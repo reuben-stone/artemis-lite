@@ -27,13 +27,13 @@ export const PlanStepSchema = z.object({
   id: z.string(),
   objective: z.string(),
   preferredAction: z.enum(['retrieve', 'inspect_workspace', 'use_tool', 'ask_user', 'verify', 'investigate', 'delegate_engineering']),
-  toolName: z.string().optional(),
-  toolArgs: z.record(z.unknown()).optional(),
-  reason: z.string().max(300)
+  toolName: z.string().nullable().optional(),
+  toolArgs: z.record(z.unknown()).nullable().optional(),
+  reason: z.string().transform(s => s.slice(0, 500))
 })
 
 export const PlanSchema = z.object({
-  summary: z.string().max(500),
+  summary: z.string().transform(s => s.slice(0, 500)),
   steps: z.array(PlanStepSchema).min(1).max(8)
 })
 
@@ -42,7 +42,7 @@ export type PlanStep = z.infer<typeof PlanStepSchema>
 
 export const VerificationSchema = z.object({
   pass: z.boolean(),
-  reason: z.string().max(500)
+  reason: z.string().transform(s => s.slice(0, 500))
 })
 
 export type VerificationOutput = z.infer<typeof VerificationSchema>
@@ -54,11 +54,11 @@ export const InvestigationActionSchema = z.discriminatedUnion('action', [
     action: z.literal('tool_call'),
     toolName: z.string(),
     toolArgs: z.record(z.unknown()).optional(),
-    objective: z.string().max(300)
+    objective: z.string().transform(s => s.slice(0, 300))
   }),
   z.object({
     action: z.literal('stop'),
-    conclusion: z.string().max(500),
+    conclusion: z.string().transform(s => s.slice(0, 500)),
     outcome: z.enum(['supported', 'inconclusive']),
     evidenceRefs: z.array(z.string()).optional()
   })

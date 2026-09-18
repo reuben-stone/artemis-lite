@@ -24,6 +24,7 @@ export const IpcChannel = {
   PROJECT_UPDATE_INTEGRATIONS: 'project:updateIntegrations',
 
   WORKFLOW_RESULT: 'workflow:result',
+  WORKFLOW_PUBLISH_PR: 'workflow:publishPR',
 
   // Recovery
   WORKFLOW_INTERRUPTED: 'workflow:interrupted',

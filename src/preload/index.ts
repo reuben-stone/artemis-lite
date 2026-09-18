@@ -52,7 +52,9 @@ const api = {
     interrupted: () =>
       ipcRenderer.invoke(IpcChannel.WORKFLOW_INTERRUPTED),
     resume: (input: GetWorkflowInput) =>
-      ipcRenderer.invoke(IpcChannel.WORKFLOW_RESUME, input)
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_RESUME, input),
+    publishPR: (input: { workflowId: string }) =>
+      ipcRenderer.invoke(IpcChannel.WORKFLOW_PUBLISH_PR, input)
   },
   approvals: {
     resolve: (input: ResolveApprovalInput) =>
