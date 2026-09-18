@@ -12,16 +12,20 @@ import { app, safeStorage } from 'electron'
 import { join } from 'path'
 import { readFileSync, writeFileSync, rmSync, existsSync } from 'fs'
 
-type SecretName = 'anthropic' | 'github'
+type SecretName = 'anthropic' | 'github' | 'sentry' | 'google_analytics'
 
 const SECRET_FILES: Record<SecretName, string> = {
   anthropic: 'anthropic.key.enc',
-  github: 'github.key.enc'
+  github: 'github.key.enc',
+  sentry: 'sentry.key.enc',
+  google_analytics: 'ga.credentials.enc'
 }
 
 const ENV_VARS: Record<SecretName, string> = {
   anthropic: 'ANTHROPIC_API_KEY',
-  github: 'GITHUB_TOKEN'
+  github: 'GITHUB_TOKEN',
+  sentry: 'SENTRY_AUTH_TOKEN',
+  google_analytics: 'GA_CREDENTIALS'
 }
 
 function secretPath(name: SecretName): string {

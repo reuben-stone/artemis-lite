@@ -7,22 +7,28 @@ interface Props {
 interface SecretState {
   anthropic: boolean
   github: boolean
+  sentry: boolean
+  google_analytics: boolean
 }
 
 export function SettingsDialog({ onClose }: Props) {
-  const [secrets, setSecrets] = useState<SecretState>({ anthropic: false, github: false })
+  const [secrets, setSecrets] = useState<SecretState>({ anthropic: false, github: false, sentry: false, google_analytics: false })
   const [anthropicKey, setAnthropicKey] = useState('')
   const [githubToken, setGithubToken] = useState('')
+  const [sentryToken, setSentryToken] = useState('')
+  const [gaCredentials, setGaCredentials] = useState('')
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
     async function load() {
-      const [a, g] = await Promise.all([
+      const [a, g, s, ga] = await Promise.all([
         window.artemis.secrets.has({ name: 'anthropic' }),
-        window.artemis.secrets.has({ name: 'github' })
+        window.artemis.secrets.has({ name: 'github' }),
+        window.artemis.secrets.has({ name: 'sentry' }),
+        window.artemis.secrets.has({ name: 'google_analytics' })
       ])
-      setSecrets({ anthropic: a.has, github: g.has })
+      setSecrets({ anthropic: a.has, github: g.has, sentry: s.has, google_analytics: ga.has })
     }
     load()
   }, [])
@@ -39,12 +45,22 @@ export function SettingsDialog({ onClose }: Props) {
         await window.artemis.secrets.set({ name: 'github', value: githubToken.trim() })
         setGithubToken('')
       }
+      if (sentryToken.trim()) {
+        await window.artemis.secrets.set({ name: 'sentry', value: sentryToken.trim() })
+        setSentryToken('')
+      }
+      if (gaCredentials.trim()) {
+        await window.artemis.secrets.set({ name: 'google_analytics', value: gaCredentials.trim() })
+        setGaCredentials('')
+      }
       // Refresh state
-      const [a, g] = await Promise.all([
+      const [a, g, s, ga] = await Promise.all([
         window.artemis.secrets.has({ name: 'anthropic' }),
-        window.artemis.secrets.has({ name: 'github' })
+        window.artemis.secrets.has({ name: 'github' }),
+        window.artemis.secrets.has({ name: 'sentry' }),
+        window.artemis.secrets.has({ name: 'google_analytics' })
       ])
-      setSecrets({ anthropic: a.has, github: g.has })
+      setSecrets({ anthropic: a.has, github: g.has, sentry: s.has, google_analytics: ga.has })
       setMessage('Saved. Restart the app for changes to take effect.')
     } catch (err: any) {
       setMessage(`Error: ${err.message ?? String(err)}`)
@@ -127,6 +143,60 @@ export function SettingsDialog({ onClose }: Props) {
             />
           </div>
 
+          {/* Sentry */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Sentry Auth Token</label>
+              {secrets.sentry ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: 'var(--status-success)' }}>Configured</span>
+                  <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => handleClear('sentry')}>Clear</button>
+                </div>
+              ) : (
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Optional</span>
+              )}
+            </div>
+            <input
+              type="password"
+              value={sentryToken}
+              onChange={e => setSentryToken(e.target.value)}
+              placeholder={secrets.sentry ? 'Replace existing token...' : 'sntrys_...'}
+              style={{
+                width: '100%', padding: '6px 10px', fontSize: 12,
+                background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius)', color: 'var(--text-primary)',
+                fontFamily: 'var(--mono)'
+              }}
+            />
+          </div>
+
+          {/* Google Analytics */}
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+              <label style={{ fontSize: 12, fontWeight: 500 }}>Google Analytics Credentials</label>
+              {secrets.google_analytics ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 11, color: 'var(--status-success)' }}>Configured</span>
+                  <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => handleClear('google_analytics')}>Clear</button>
+                </div>
+              ) : (
+                <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>Optional</span>
+              )}
+            </div>
+            <textarea
+              value={gaCredentials}
+              onChange={e => setGaCredentials(e.target.value)}
+              placeholder={secrets.google_analytics ? 'Replace existing credentials...' : 'Paste service account JSON...'}
+              rows={3}
+              style={{
+                width: '100%', padding: '6px 10px', fontSize: 11,
+                background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)',
+                borderRadius: 'var(--radius)', color: 'var(--text-primary)',
+                fontFamily: 'var(--mono)', resize: 'vertical'
+              }}
+            />
+          </div>
+
           {message && (
             <div style={{
               fontSize: 12, padding: '8px 10px', borderRadius: 'var(--radius)',
@@ -140,7 +210,7 @@ export function SettingsDialog({ onClose }: Props) {
 
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
             <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
-            <button className="btn btn-primary" onClick={handleSave} disabled={saving || (!anthropicKey.trim() && !githubToken.trim())}>
+            <button className="btn btn-primary" onClick={handleSave} disabled={saving || (!anthropicKey.trim() && !githubToken.trim() && !sentryToken.trim() && !gaCredentials.trim())}>
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
