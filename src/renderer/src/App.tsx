@@ -360,6 +360,9 @@ export function App() {
             setActiveId(wfId)
             refreshWorkflowData(wfId)
           }}
+          onCreateWorkflow={(goal) => {
+            handleCreate(goal)
+          }}
         />
       )}
     </div>

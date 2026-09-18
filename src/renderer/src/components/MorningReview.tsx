@@ -36,9 +36,10 @@ interface ProjectState {
 interface Props {
   onClose: () => void
   onSelectWorkflow: (workflowId: string) => void
+  onCreateWorkflow: (goal: string) => void
 }
 
-export function MorningReview({ onClose, onSelectWorkflow }: Props) {
+export function MorningReview({ onClose, onSelectWorkflow, onCreateWorkflow }: Props) {
   const [projectStates, setProjectStates] = useState<ProjectState[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -273,8 +274,18 @@ export function MorningReview({ onClose, onSelectWorkflow }: Props) {
                           {issue.count} events
                         </div>
                       </div>
-                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6, fontFamily: 'var(--mono)' }}>
-                        {issue.projectSlug}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+                        <span style={{ fontSize: 10, color: 'var(--text-muted)', fontFamily: 'var(--mono)' }}>{issue.projectSlug}</span>
+                        <button
+                          style={S.actionBtn}
+                          onClick={() => {
+                            const goal = `Investigate Sentry issue in ${issue.projectSlug}: "${issue.title}". This error has ${issue.count} events. Search the repository for relevant code, identify the likely cause, and suggest a fix.`
+                            onCreateWorkflow(goal)
+                            onClose()
+                          }}
+                        >
+                          Investigate
+                        </button>
                       </div>
                     </div>
                   )
