@@ -174,6 +174,8 @@ function registerIpcHandlers(): void {
         branch: (status as any).branch ?? null,
         dirty: (status as any).dirty ?? false,
         active: p.id === activeId,
+        sentryProject: p.sentryProject ?? null,
+        gaPropertyId: p.gaPropertyId ?? null,
         createdAt: p.createdAt
       })
     }
