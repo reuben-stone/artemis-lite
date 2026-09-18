@@ -664,7 +664,7 @@ body {
   border-radius: var(--radius-md);
   width: 820px;
   max-width: 95vw;
-  max-height: 82vh;
+  height: 80vh;
   padding: 20px 28px;
   display: flex;
   flex-direction: column;
