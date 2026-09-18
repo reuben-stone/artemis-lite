@@ -268,15 +268,16 @@ export function MorningReview({ onClose, onSelectWorkflow }: Props) {
                           <td style={{ padding: '8px 0', color: 'var(--text-primary)', fontWeight: 500 }}>{ps.project.name}</td>
                           <td style={{ padding: '8px 8px', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{ps.project.branch || '-'}</td>
                           <td style={{ padding: '8px 8px', color: ps.sentryIssues.length > 0 ? '#eab308' : 'var(--text-muted)', fontSize: 11 }}>
-                            {ps.sentryIssues.length > 0 ? `${ps.sentryIssues.length} issues` : 'Clear'}
+                            {ps.sentryIssues.length > 0 ? `${ps.sentryIssues.length} issue${ps.sentryIssues.length !== 1 ? 's' : ''}` : 'Clear'}
                           </td>
                           <td style={{ padding: '8px 0', textAlign: 'right', color: 'var(--text-secondary)', fontSize: 11 }}>
-                            {ps.analytics.length > 0 ? ps.analytics.map(a => (
+                            {ps.analytics.length > 0 ? ps.analytics.map((a, i) => (
                               <span key={a.label}>
+                                {i > 0 && ' / '}
                                 {a.sessions.toLocaleString()}
-                                {a.sessionsChange !== null && (
-                                  <span style={{ color: a.sessionsChange >= 0 ? '#22c55e' : 'var(--text-muted)', marginLeft: 4 }}>
-                                    {a.sessionsChange >= 0 ? '+' : ''}{a.sessionsChange}%
+                                {a.sessionsChange !== null && a.sessionsChange !== 0 && (
+                                  <span style={{ color: a.sessionsChange > 0 ? '#22c55e' : 'var(--text-muted)', marginLeft: 4 }}>
+                                    {a.sessionsChange > 0 ? '+' : ''}{a.sessionsChange}%
                                   </span>
                                 )}
                               </span>

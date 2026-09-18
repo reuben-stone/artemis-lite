@@ -84,18 +84,21 @@ export class AnalyticsClient {
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
 
     try {
-      // Current period: yesterday
-      const yesterday = new Date()
-      yesterday.setDate(yesterday.getDate() - 1)
-      const dayBefore = new Date()
-      dayBefore.setDate(dayBefore.getDate() - 2)
-
+      // Current period: last 7 days vs prior 7 days
       const formatDate = (d: Date) => d.toISOString().split('T')[0]
+      const end = new Date()
+      end.setDate(end.getDate() - 1) // yesterday
+      const start = new Date()
+      start.setDate(start.getDate() - 7)
+      const priorEnd = new Date()
+      priorEnd.setDate(priorEnd.getDate() - 8)
+      const priorStart = new Date()
+      priorStart.setDate(priorStart.getDate() - 14)
 
       const body = {
         dateRanges: [
-          { startDate: formatDate(yesterday), endDate: formatDate(yesterday) },
-          { startDate: formatDate(dayBefore), endDate: formatDate(dayBefore) }
+          { startDate: formatDate(start), endDate: formatDate(end) },
+          { startDate: formatDate(priorStart), endDate: formatDate(priorEnd) }
         ],
         metrics: [
           { name: 'sessions' },
