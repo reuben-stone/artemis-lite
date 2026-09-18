@@ -97,7 +97,7 @@ export function SettingsDialog({ onClose }: Props) {
           ))}
         </div>
 
-        <div style={{ padding: '16px 20px', height: '420px', overflowY: 'auto' }}>
+        <div style={{ padding: '16px 20px', height: '500px', overflowY: 'auto' }}>
 
         {tab === 'keys' && <>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
