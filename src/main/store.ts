@@ -20,6 +20,8 @@ export interface ProjectRow {
   remote: string | null     // git remote URL
   githubOwner: string | null
   githubRepo: string | null
+  sentryProject: string | null
+  gaPropertyId: string | null
   createdAt: string
 }
 
@@ -275,6 +277,12 @@ function initDb(d: Database.Database): void {
   if (!colNames.has('githubRepo')) {
     d.exec('ALTER TABLE projects ADD COLUMN githubRepo TEXT')
   }
+  if (!colNames.has('sentryProject')) {
+    d.exec('ALTER TABLE projects ADD COLUMN sentryProject TEXT')
+  }
+  if (!colNames.has('gaPropertyId')) {
+    d.exec('ALTER TABLE projects ADD COLUMN gaPropertyId TEXT')
+  }
 }
 
 // ── Project CRUD ──────────────────────────────────────────────────
@@ -303,6 +311,16 @@ export function createProject(
 export function updateProjectGitHub(id: string, owner: string | null, repo: string | null): void {
   getDb().prepare('UPDATE projects SET githubOwner = ?, githubRepo = ? WHERE id = ?')
     .run(owner, repo, id)
+}
+
+export function updateProjectIntegrations(id: string, fields: { sentryProject?: string | null; gaPropertyId?: string | null }): void {
+  const d = getDb()
+  if (fields.sentryProject !== undefined) {
+    d.prepare('UPDATE projects SET sentryProject = ? WHERE id = ?').run(fields.sentryProject, id)
+  }
+  if (fields.gaPropertyId !== undefined) {
+    d.prepare('UPDATE projects SET gaPropertyId = ? WHERE id = ?').run(fields.gaPropertyId, id)
+  }
 }
 
 export function getProject(id: string): ProjectRow | undefined {

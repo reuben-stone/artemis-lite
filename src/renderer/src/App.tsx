@@ -18,6 +18,8 @@ export interface ProjectInfo {
   branch: string | null
   dirty: boolean
   active?: boolean
+  sentryProject?: string | null
+  gaPropertyId?: string | null
   createdAt: string
 }
 

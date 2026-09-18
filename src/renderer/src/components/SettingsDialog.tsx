@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 interface Props {
   onClose: () => void
@@ -197,6 +197,15 @@ export function SettingsDialog({ onClose }: Props) {
             />
           </div>
 
+          <div className="section-label" style={{ padding: 0, marginTop: 20, marginBottom: 12 }}>Connections</div>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Map each project to its Sentry project slug and Google Analytics property ID.
+          </p>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
+            Sentry org: <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-secondary)' }}>livana-group-ltd-1a</span>
+          </div>
+          <ProjectIntegrations />
+
           {message && (
             <div style={{
               fontSize: 12, padding: '8px 10px', borderRadius: 'var(--radius)',
@@ -216,6 +225,86 @@ export function SettingsDialog({ onClose }: Props) {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ProjectIntegrations() {
+  const [projects, setProjects] = useState<any[]>([])
+  const [edits, setEdits] = useState<Record<string, { sentryProject: string; gaPropertyId: string }>>({})
+  const [saved, setSaved] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    const list = await window.artemis.projects.list()
+    setProjects(list)
+    const e: Record<string, { sentryProject: string; gaPropertyId: string }> = {}
+    for (const p of list) {
+      e[p.id] = {
+        sentryProject: p.sentryProject ?? '',
+        gaPropertyId: p.gaPropertyId ?? ''
+      }
+    }
+    setEdits(e)
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleSave = async (projectId: string) => {
+    const e = edits[projectId]
+    if (!e) return
+    await window.artemis.projects.updateIntegrations({
+      projectId,
+      sentryProject: e.sentryProject || undefined,
+      gaPropertyId: e.gaPropertyId || undefined
+    })
+    setSaved(projectId)
+    setTimeout(() => setSaved(null), 2000)
+  }
+
+  if (projects.length === 0) {
+    return <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No projects registered.</div>
+  }
+
+  const inputStyle = {
+    width: '100%', padding: '4px 8px', fontSize: 11,
+    background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)',
+    borderRadius: 'var(--radius)', color: 'var(--text-primary)',
+    fontFamily: 'var(--mono)'
+  }
+
+  return (
+    <div>
+      {projects.map((p: any) => (
+        <div key={p.id} style={{
+          padding: '10px 12px', border: '1px solid var(--border-subtle)',
+          borderRadius: 'var(--radius)', marginBottom: 8
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 8 }}>{p.name}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Sentry project slug</label>
+              <input
+                value={edits[p.id]?.sentryProject ?? ''}
+                onChange={e => setEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], sentryProject: e.target.value } }))}
+                placeholder="e.g. lumi"
+                style={inputStyle}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>GA4 Property ID</label>
+              <input
+                value={edits[p.id]?.gaPropertyId ?? ''}
+                onChange={e => setEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], gaPropertyId: e.target.value } }))}
+                placeholder="e.g. 123456789"
+                style={inputStyle}
+              />
+            </div>
+          </div>
+          <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => handleSave(p.id)}>
+            {saved === p.id ? 'Saved' : 'Save'}
+          </button>
+        </div>
+      ))}
     </div>
   )
 }

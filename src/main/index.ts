@@ -23,7 +23,7 @@ import {
   listTraceEvents, getWorkflowUsage, listPendingApprovals, listContextPackets,
   createProject, getProject, listProjects, removeProject,
   getActiveProject, getActiveProjectId, setActiveProjectId,
-  getProjectByPath, updateProjectGitHub, getWorkflowResult,
+  getProjectByPath, updateProjectGitHub, updateProjectIntegrations, getWorkflowResult,
   getDb, createWorkflow
 } from './store'
 import { runWorkflow, resumeWorkflow, discoverInterruptedWorkflows, resolveWorkflowApproval } from './workflow'
@@ -238,8 +238,19 @@ function registerIpcHandlers(): void {
       remote: project.remote,
       branch: (status as any).branch ?? null,
       dirty: (status as any).dirty ?? false,
+      sentryProject: project.sentryProject ?? null,
+      gaPropertyId: project.gaPropertyId ?? null,
       createdAt: project.createdAt
     }
+  })
+
+  ipcMain.handle(IpcChannel.PROJECT_UPDATE_INTEGRATIONS, async (_event, raw: unknown) => {
+    const input = raw as { projectId: string; sentryProject?: string; gaPropertyId?: string }
+    updateProjectIntegrations(input.projectId, {
+      sentryProject: input.sentryProject,
+      gaPropertyId: input.gaPropertyId
+    })
+    return { updated: true }
   })
 
   // ── Workflow handlers ───────────────────────────────────────────

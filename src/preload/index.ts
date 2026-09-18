@@ -26,7 +26,9 @@ const api = {
     getActive: () =>
       ipcRenderer.invoke(IpcChannel.PROJECT_GET_ACTIVE),
     pickFolder: () =>
-      ipcRenderer.invoke(IpcChannel.PROJECT_PICK_FOLDER)
+      ipcRenderer.invoke(IpcChannel.PROJECT_PICK_FOLDER),
+    updateIntegrations: (input: { projectId: string; sentryProject?: string; gaPropertyId?: string }) =>
+      ipcRenderer.invoke(IpcChannel.PROJECT_UPDATE_INTEGRATIONS, input)
   },
   workflows: {
     start: (input: StartWorkflowInput) =>

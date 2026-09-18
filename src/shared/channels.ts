@@ -21,6 +21,7 @@ export const IpcChannel = {
   PROJECT_SET_ACTIVE: 'project:setActive',
   PROJECT_GET_ACTIVE: 'project:getActive',
   PROJECT_PICK_FOLDER: 'project:pickFolder',
+  PROJECT_UPDATE_INTEGRATIONS: 'project:updateIntegrations',
 
   WORKFLOW_RESULT: 'workflow:result',
 
