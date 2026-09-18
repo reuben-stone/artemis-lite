@@ -15,8 +15,8 @@ import {
   createWorkflowResult
 } from './store'
 import type { WorkflowRow, StepRow, ApprovalRow, WorkflowArtifact } from './store'
-import type { ModelProvider, PlanOutput } from './model/types'
-import { executeTool, getToolDefinitions, type ToolRegistry, type ToolContext } from './tools/registry'
+import type { ModelProvider, PlanOutput, InvestigationEvidence } from './model/types'
+import { executeTool, getToolDefinitions, getReadOnlyTools, type ToolRegistry, type ToolContext } from './tools/registry'
 import { buildContext } from './context/builder'
 import { toPersistedItem } from './context/types'
 import type { ContextPacket } from './context/types'
@@ -563,6 +563,26 @@ async function executePlanSteps(
         })
         emit({ type: 'step.completed', workflowId: wf.id, step: stepToSummary(step) })
 
+        // Trace evidence acquisition for read tools
+        const toolDef = deps.tools.get(planItem.toolName)
+        if (toolDef?.mode === 'read') {
+          const resultStr = JSON.stringify(result)
+          trace(wf.id, 'evidence.acquired', {
+            stepId: step.id,
+            toolName: planItem.toolName,
+            status: 'success',
+            metadata: JSON.stringify({
+              planStepId: planItem.id,
+              objective: planItem.objective,
+              directory: planItem.toolArgs?.directory ?? null,
+              resultSizeChars: resultStr.length,
+              matchCount: (result as any)?.totalMatches ?? (result as any)?.matches?.length ?? null,
+              truncated: (result as any)?.truncated ?? false,
+              searchRoot: (result as any)?.searchRoot ?? null
+            })
+          })
+        }
+
         // Fault injection: after step completion
         await fi.afterStepCompletion(step.id)
       }
@@ -576,6 +596,256 @@ async function executePlanSteps(
   }
 
   return stepResults
+}
+
+// ── Investigation loop ────────────────────────────────────────────
+
+export interface InvestigationConfig {
+  maxIterations: number
+  tokenBudget: number
+  wallClockMs: number
+}
+
+const DEFAULT_INVESTIGATION_CONFIG: InvestigationConfig = {
+  maxIterations: 12,
+  tokenBudget: 80_000,
+  wallClockMs: 180_000
+}
+
+async function executeInvestigation(
+  wf: WorkflowRow,
+  plan: PlanOutput,
+  deps: OrchestratorDeps,
+  config: InvestigationConfig = DEFAULT_INVESTIGATION_CONFIG
+): Promise<Record<string, unknown>> {
+  const { model, tools, workspacePath, emit } = deps
+  const investigationId = plan.steps[0].id
+  const hypothesis = plan.steps[0].objective
+
+  // Read-only tool subset
+  const readOnlyTools = getReadOnlyTools(tools)
+  const readOnlyDescs = getToolDefinitions(readOnlyTools)
+
+  // Reconstruct state from persisted steps (for recovery)
+  const existingSteps = listSteps(wf.id)
+  const evidence: InvestigationEvidence[] = []
+  for (const s of existingSteps) {
+    if (s.status === 'completed' && s.inputData && s.outputData) {
+      try {
+        const input = JSON.parse(s.inputData)
+        if (input.investigationId === investigationId && input.iteration !== undefined) {
+          evidence.push({
+            iteration: input.iteration,
+            toolName: s.toolName ?? 'unknown',
+            toolArgs: input.toolArgs ?? {},
+            result: JSON.parse(s.outputData),
+            objective: input.objective ?? input.reasoning ?? ''
+          })
+        }
+      } catch { /* skip malformed */ }
+    }
+  }
+
+  let totalTokensUsed = 0
+  // Sum existing usage for this workflow
+  const existingUsage = getWorkflowUsage(wf.id)
+  if (existingUsage) totalTokensUsed = (existingUsage.inputTokens ?? 0) + (existingUsage.outputTokens ?? 0)
+
+  const startTime = Date.now()
+  let conclusion = ''
+  let sufficient = false
+
+  trace(wf.id, 'investigation.started', {
+    status: 'start',
+    metadata: JSON.stringify({
+      investigationId,
+      hypothesis,
+      config: { maxIterations: config.maxIterations, tokenBudget: config.tokenBudget, wallClockMs: config.wallClockMs },
+      resumedFrom: evidence.length,
+      tokensUsedBefore: totalTokensUsed
+    })
+  })
+
+  for (let iteration = evidence.length; iteration < config.maxIterations; iteration++) {
+    // Budget checks
+    if (totalTokensUsed >= config.tokenBudget) {
+      trace(wf.id, 'investigation.budget_exhausted', {
+        status: 'failure',
+        metadata: JSON.stringify({ iteration, reason: 'tokens', totalTokensUsed })
+      })
+      conclusion = `Investigation stopped: token budget exhausted after ${iteration} iterations.`
+      break
+    }
+
+    if (Date.now() - startTime > config.wallClockMs) {
+      trace(wf.id, 'investigation.budget_exhausted', {
+        status: 'failure',
+        metadata: JSON.stringify({ iteration, reason: 'timeout', elapsedMs: Date.now() - startTime })
+      })
+      conclusion = `Investigation stopped: wall-clock timeout after ${iteration} iterations.`
+      break
+    }
+
+    // Ask the model what to do next
+    trace(wf.id, 'investigation.iteration', {
+      status: 'start',
+      metadata: JSON.stringify({
+        iteration,
+        evidenceCount: evidence.length,
+        tokensUsed: totalTokensUsed,
+        tokenBudget: config.tokenBudget,
+        tokensRemaining: config.tokenBudget - totalTokensUsed
+      })
+    })
+
+    const actionResult = await model.generateInvestigationAction({
+      goal: wf.goal,
+      hypothesis,
+      evidence,
+      allowedTools: readOnlyDescs,
+      iterationNumber: iteration,
+      maxIterations: config.maxIterations,
+      remainingBudgetTokens: config.tokenBudget - totalTokensUsed
+    })
+
+    totalTokensUsed += (actionResult.usage.inputTokens ?? 0) + (actionResult.usage.outputTokens ?? 0)
+    appendUsage({
+      workflowId: wf.id,
+      stepId: null,
+      provider: actionResult.provider,
+      model: actionResult.model,
+      inputTokens: actionResult.usage.inputTokens,
+      outputTokens: actionResult.usage.outputTokens,
+      estimatedCost: actionResult.usage.estimatedCost ?? 0,
+      timestamp: new Date().toISOString()
+    })
+
+    const action = actionResult.data
+
+    if (action.action === 'stop') {
+      conclusion = action.conclusion
+      sufficient = action.outcome === 'supported'
+
+      // Persist conclusion as a reason step
+      const reasonStep = createStep(wf.id, 'reason', null, {
+        investigationId,
+        conclusion: action.conclusion,
+        outcome: action.outcome,
+        evidenceRefs: action.evidenceRefs ?? [],
+        totalIterations: iteration
+      })
+      updateStep(reasonStep.id, { status: 'completed', completedAt: new Date().toISOString() })
+
+      trace(wf.id, 'investigation.stopped', {
+        status: action.outcome === 'supported' ? 'success' : 'failure',
+        metadata: JSON.stringify({
+          iteration,
+          outcome: action.outcome,
+          evidenceRefs: action.evidenceRefs ?? [],
+          conclusion: action.conclusion
+        })
+      })
+      break
+    }
+
+    // Validate tool is in allowed set
+    if (!readOnlyTools.has(action.toolName)) {
+      trace(wf.id, 'investigation.iteration', {
+        status: 'failure',
+        toolName: action.toolName,
+        metadata: JSON.stringify({ iteration, error: 'tool not in allowed set' })
+      })
+      continue // Skip this iteration, don't count as evidence
+    }
+
+    // Execute the tool call
+    const step = createStep(wf.id, 'tool', action.toolName, {
+      investigationId,
+      iteration,
+      toolArgs: action.toolArgs,
+      objective: action.objective
+    })
+    updateStep(step.id, { status: 'running', startedAt: new Date().toISOString() })
+    emit({ type: 'step.started', workflowId: wf.id, step: stepToSummary(step) })
+
+    try {
+      const toolResult = await executeTool(readOnlyTools, action.toolName, action.toolArgs ?? {}, {
+        workspacePath,
+        ...deps.toolContext
+      })
+
+      updateStep(step.id, {
+        status: 'completed',
+        outputData: JSON.stringify(toolResult),
+        completedAt: new Date().toISOString()
+      })
+      emit({ type: 'step.completed', workflowId: wf.id, step: stepToSummary(step) })
+
+      evidence.push({
+        iteration,
+        toolName: action.toolName,
+        toolArgs: action.toolArgs ?? {},
+        result: toolResult,
+        objective: action.objective
+      })
+
+      const resultStr = JSON.stringify(toolResult)
+      trace(wf.id, 'investigation.evidence', {
+        stepId: step.id,
+        toolName: action.toolName,
+        status: 'success',
+        metadata: JSON.stringify({
+          iteration,
+          resultSizeChars: resultStr.length,
+          matchCount: (toolResult as any)?.totalMatches ?? null,
+          truncated: (toolResult as any)?.truncated ?? false
+        })
+      })
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err)
+      updateStep(step.id, { status: 'failed', completedAt: new Date().toISOString() })
+      trace(wf.id, 'investigation.iteration', {
+        stepId: step.id,
+        toolName: action.toolName,
+        status: 'failure',
+        errorCode: errMsg
+      })
+      // Don't add failed results to evidence - let the model try something else
+    }
+  }
+
+  // If loop exhausted without stop
+  if (!conclusion) {
+    conclusion = `Investigation reached maximum iterations (${config.maxIterations}) without conclusive result.`
+    trace(wf.id, 'investigation.budget_exhausted', {
+      status: 'failure',
+      metadata: JSON.stringify({ reason: 'iterations', maxIterations: config.maxIterations })
+    })
+  }
+
+  trace(wf.id, 'investigation.completed', {
+    status: sufficient ? 'success' : 'failure',
+    metadata: JSON.stringify({
+      totalIterations: evidence.length,
+      totalTokensUsed,
+      evidenceCount: evidence.length,
+      sufficient
+    })
+  })
+
+  // Return consolidated evidence under the plan step ID
+  return {
+    [investigationId]: {
+      conclusion,
+      sufficient,
+      iterations: evidence.length,
+      evidence: evidence.map(e => ({
+        tool: e.toolName,
+        args: e.toolArgs,
+        result: e.result
+      }))
+    }
+  }
 }
 
 // ── Run verification (shared) ──────────────────────────────────────
@@ -611,6 +881,28 @@ async function runVerification(
 
   const verifyStep = existingSteps.find(s => s.type === 'verify') ?? createStep(wf.id, 'verify')
   updateStep(verifyStep.id, { status: 'running', startedAt: verifyStep.startedAt ?? new Date().toISOString() })
+
+  // Track which evidence is available for verification
+  const evidenceSummary = Object.entries(stepResults).map(([stepId, result]) => {
+    const planStep = plan.steps.find(s => s.id === stepId)
+    const resultStr = JSON.stringify(result)
+    return {
+      planStepId: stepId,
+      toolName: planStep?.toolName ?? 'unknown',
+      objective: planStep?.objective ?? '',
+      resultSizeChars: resultStr.length
+    }
+  })
+
+  trace(wf.id, 'verification.evidence', {
+    stepId: verifyStep.id,
+    status: 'start',
+    metadata: JSON.stringify({
+      totalStepsPlanned: plan.steps.length,
+      stepsWithResults: Object.keys(stepResults).length,
+      evidence: evidenceSummary
+    })
+  })
 
   const verifyStart = Date.now()
   const verifyResult = await callModelWithRetry(wf, 'verify', () =>
@@ -731,7 +1023,11 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     trace(wf.id, 'workflow.executing', { status: 'start' })
     emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
 
-    const stepResults = await executePlanSteps(wf, plan, [], deps)
+    // Dispatch: investigation loop or normal plan execution
+    const isInvestigation = plan.steps.length === 1 && plan.steps[0].preferredAction === 'investigate'
+    const stepResults = isInvestigation
+      ? await executeInvestigation(wf, plan, deps)
+      : await executePlanSteps(wf, plan, [], deps)
 
     // Verifying
     const verification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
@@ -874,7 +1170,10 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
 
         transition(wf, 'executing')
         emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
-        const stepResults = await executePlanSteps(wf, plan, listSteps(wf.id), deps)
+        const isInvestigationReplan = plan.steps.length === 1 && plan.steps[0].preferredAction === 'investigate'
+        const stepResults = isInvestigationReplan
+          ? await executeInvestigation(wf, plan, deps)
+          : await executePlanSteps(wf, plan, listSteps(wf.id), deps)
         resumeVerification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
         resumeStepResults = stepResults
         break
@@ -897,7 +1196,10 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
           emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
         }
 
-        const stepResults = await executePlanSteps(wf, plan, listSteps(wf.id), deps)
+        const isInvestigationResume = plan.steps.length === 1 && plan.steps[0].preferredAction === 'investigate'
+        const stepResults = isInvestigationResume
+          ? await executeInvestigation(wf, plan, deps)
+          : await executePlanSteps(wf, plan, listSteps(wf.id), deps)
         resumeVerification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
         resumeStepResults = stepResults
         break

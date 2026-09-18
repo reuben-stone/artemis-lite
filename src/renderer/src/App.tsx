@@ -6,7 +6,7 @@ import { Inspector } from './components/Inspector'
 import { BottomStrip } from './components/BottomStrip'
 import { NewWorkflowDialog } from './components/NewWorkflowDialog'
 import { SettingsDialog } from './components/SettingsDialog'
-import { ReviewDialog } from './components/ReviewDialog'
+import { ReviewDialog, type ReviewPR } from './components/ReviewDialog'
 
 export type InspectorTab = 'trace' | 'context' | 'state' | 'usage' | 'faults' | 'schedule'
 
@@ -99,6 +99,7 @@ export function App() {
   const [busy, setBusy] = useState(false)
   const [projects, setProjects] = useState<ProjectInfo[]>([])
   const [activeProject, setActiveProject] = useState<ProjectInfo | null>(null)
+  const [prs, setPrs] = useState<ReviewPR[]>([])
 
   const activeIdRef = useRef(activeId)
   activeIdRef.current = activeId
@@ -113,10 +114,34 @@ export function App() {
     setActiveProject(p)
   }, [])
 
+  // Load PRs across all projects with GitHub identity
+  const refreshPrs = useCallback(async () => {
+    try {
+      const projectList = await window.artemis.projects.list()
+      const allPrs: ReviewPR[] = []
+      for (const project of projectList) {
+        if (project.githubOwner && project.githubRepo) {
+          try {
+            const res = await window.artemis.github.projectPrs({ owner: project.githubOwner, repo: project.githubRepo })
+            if (res.pullRequests) {
+              allPrs.push(...res.pullRequests.map((pr: any) => ({
+                number: pr.number, title: pr.title, project: project.name,
+                author: pr.author, headBranch: pr.headBranch, baseBranch: pr.baseBranch,
+                draft: pr.draft, state: pr.state, labels: pr.labels || []
+              })))
+            }
+          } catch { /* skip projects without GitHub access */ }
+        }
+      }
+      setPrs(allPrs)
+    } catch { /* ok */ }
+  }, [])
+
   // Load persisted workflows on mount + discover interrupted
   useEffect(() => {
     async function init() {
       await refreshProjects()
+      refreshPrs()
       const list = await window.artemis.workflows.list()
       setWorkflows(list)
 
@@ -296,6 +321,7 @@ export function App() {
               await window.artemis.projects.remove({ projectId: id })
               await refreshProjects()
             }}
+            prs={prs}
           />
         </aside>
 

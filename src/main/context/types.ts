@@ -23,6 +23,7 @@ export type ContextSource =
   | 'search'
   | 'tool_result'
   | 'tool_definitions'
+  | 'investigation_evidence'
 
 // ── Persisted context item (compact — no full content duplication) ──
 

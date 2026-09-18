@@ -20,9 +20,10 @@ const CATEGORY_LIMITS: Record<string, number> = {
   goal: 500,
   step: 300,
   workflow_state: 500,
-  tool_definitions: 1500,
+  tool_definitions: 2500,
   repository_evidence: 3500,
-  tool_evidence: 2000
+  tool_evidence: 2000,
+  investigation_evidence: 4000
 }
 
 // ── Builder ────────────────────────────────────────────────────────
@@ -30,13 +31,14 @@ const CATEGORY_LIMITS: Record<string, number> = {
 export interface BuildContextRequest {
   workflowId: string
   stepId: string | null
-  phase: 'plan' | 'verify'
+  phase: 'plan' | 'verify' | 'investigate'
   goal: string
   currentStep?: { type: string; objective: string }
   workflowState?: { status: string; completedSteps: string[] }
   tools?: ToolDescription[]
   workspacePath: string
   toolEvidence?: Record<string, unknown>
+  investigationEvidence?: { iteration: number; toolName: string; result: unknown; objective: string }[]
   budget?: number
 }
 
@@ -95,9 +97,20 @@ export async function buildContext(req: BuildContextRequest): Promise<ContextPac
 
   // 4. Tool definitions (for planning)
   if (req.tools && req.tools.length > 0) {
-    const toolText = req.tools.map(t =>
-      `- ${t.name} (${t.mode}): ${t.description}`
-    ).join('\n')
+    const toolText = req.tools.map(t => {
+      let text = `- ${t.name} (${t.mode}): ${t.description}`
+      if (t.inputSchema && typeof t.inputSchema === 'object') {
+        const params = Object.entries(t.inputSchema)
+          .map(([name, info]) => {
+            const p = info as { type?: string; required?: boolean; description?: string }
+            const opt = p.required === false ? '?' : ''
+            const desc = p.description ? ` - ${p.description}` : ''
+            return `    ${name}${opt}: ${p.type ?? 'unknown'}${desc}`
+          }).join('\n')
+        if (params) text += '\n' + params
+      }
+      return text
+    }).join('\n')
     addItem('tool_definitions', 'available_tools', 'tools available for this workflow', toolText, CATEGORY_LIMITS.tool_definitions)
   }
 
@@ -127,6 +140,14 @@ export async function buildContext(req: BuildContextRequest): Promise<ContextPac
   if (req.toolEvidence && Object.keys(req.toolEvidence).length > 0) {
     const evidenceText = JSON.stringify(req.toolEvidence, null, 2)
     addItem('tool_result', 'step_results', 'results from completed tool executions', evidenceText, CATEGORY_LIMITS.tool_evidence)
+  }
+
+  // 7. Investigation evidence (for investigation iterations)
+  if (req.investigationEvidence && req.investigationEvidence.length > 0) {
+    const evidenceText = req.investigationEvidence.map(e =>
+      `[Iteration ${e.iteration}] ${e.toolName}: ${e.objective}\nResult: ${JSON.stringify(e.result, null, 2)}`
+    ).join('\n\n')
+    addItem('investigation_evidence', 'investigation_history', 'evidence acquired in previous investigation iterations', evidenceText, CATEGORY_LIMITS.investigation_evidence)
   }
 
   return {

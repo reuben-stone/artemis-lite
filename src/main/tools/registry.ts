@@ -80,17 +80,46 @@ export function getToolDefinitions(registry: ToolRegistry): ToolDescription[] {
   }))
 }
 
-// Minimal Zod → JSON schema hint for the model prompt
+// Zod → JSON schema hint for the model prompt.
+// Includes parameter names, types, optionality and descriptions
+// so the model uses the correct argument names.
 function zodToJsonHint(schema: z.ZodType): Record<string, unknown> {
   if (schema instanceof z.ZodObject) {
     const shape = schema.shape as Record<string, z.ZodType>
-    const props: Record<string, string> = {}
+    const params: Record<string, { type: string; required: boolean; description?: string }> = {}
     for (const [k, v] of Object.entries(shape)) {
-      props[k] = (v._def as Record<string, unknown>)?.typeName as string ?? 'unknown'
+      const def = v._def as Record<string, unknown>
+      let innerDef = def
+      let required = true
+
+      // Unwrap ZodOptional
+      if (def.typeName === 'ZodOptional') {
+        required = false
+        innerDef = (def.innerType as z.ZodType)?._def as Record<string, unknown> ?? def
+      }
+
+      const typeName = (innerDef.typeName as string ?? 'unknown')
+        .replace('Zod', '').toLowerCase()
+
+      const description = (def.description as string)
+        ?? (innerDef.description as string)
+        ?? undefined
+
+      params[k] = { type: typeName, required, ...(description ? { description } : {}) }
     }
-    return props
+    return params
   }
   return { type: 'unknown' }
+}
+
+// ── Read-only subset for investigation ─────────────────────────────
+
+export function getReadOnlyTools(registry: ToolRegistry): ToolRegistry {
+  const filtered: ToolRegistry = new Map()
+  for (const [name, tool] of registry) {
+    if (tool.mode === 'read') filtered.set(name, tool)
+  }
+  return filtered
 }
 
 // ── Create default registry ────────────────────────────────────────

@@ -26,7 +26,7 @@ export interface ModelResult<T> {
 export const PlanStepSchema = z.object({
   id: z.string(),
   objective: z.string(),
-  preferredAction: z.enum(['retrieve', 'inspect_workspace', 'use_tool', 'ask_user', 'verify']),
+  preferredAction: z.enum(['retrieve', 'inspect_workspace', 'use_tool', 'ask_user', 'verify', 'investigate']),
   toolName: z.string().optional(),
   toolArgs: z.record(z.unknown()).optional(),
   reason: z.string().max(300)
@@ -46,6 +46,33 @@ export const VerificationSchema = z.object({
 })
 
 export type VerificationOutput = z.infer<typeof VerificationSchema>
+
+// ── Investigation schemas ─────────────────────────────────────────
+
+export const InvestigationActionSchema = z.discriminatedUnion('action', [
+  z.object({
+    action: z.literal('tool_call'),
+    toolName: z.string(),
+    toolArgs: z.record(z.unknown()).optional(),
+    objective: z.string().max(300)
+  }),
+  z.object({
+    action: z.literal('stop'),
+    conclusion: z.string().max(500),
+    outcome: z.enum(['supported', 'inconclusive']),
+    evidenceRefs: z.array(z.string()).optional()
+  })
+])
+
+export type InvestigationAction = z.infer<typeof InvestigationActionSchema>
+
+export interface InvestigationEvidence {
+  iteration: number
+  toolName: string
+  toolArgs: Record<string, unknown>
+  result: unknown
+  objective: string
+}
 
 // ── Tool definition for model context ──────────────────────────────
 
@@ -72,7 +99,19 @@ export interface VerifyRequest {
   context?: ContextPacket
 }
 
+export interface InvestigationActionRequest {
+  goal: string
+  hypothesis: string
+  evidence: InvestigationEvidence[]
+  allowedTools: ToolDescription[]
+  iterationNumber: number
+  maxIterations: number
+  remainingBudgetTokens: number
+  context?: ContextPacket
+}
+
 export interface ModelProvider {
   generatePlan(request: PlanRequest): Promise<ModelResult<PlanOutput>>
   generateVerification(request: VerifyRequest): Promise<ModelResult<VerificationOutput>>
+  generateInvestigationAction(request: InvestigationActionRequest): Promise<ModelResult<InvestigationAction>>
 }

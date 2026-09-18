@@ -9,7 +9,8 @@ import type { ToolDefinition } from './registry'
 
 const InputSchema = z.object({
   path: z.string().describe('Relative file path within the workspace'),
-  maxLines: z.number().int().min(1).max(500).optional().describe('Maximum lines to read (default: 200)')
+  maxLines: z.number().int().min(1).max(500).optional().describe('Maximum lines to read (default: 200)'),
+  offset: z.number().int().min(0).optional().describe('Line number to start reading from (0-based, default: 0)')
 })
 
 const OutputSchema = z.object({
@@ -25,7 +26,7 @@ type Output = z.infer<typeof OutputSchema>
 
 export const readFileTool: ToolDefinition<Input, Output> = {
   name: 'read_file',
-  description: 'Read the content of a file in the workspace. Returns file content, line count and size.',
+  description: 'Read the content of a file in the workspace. Returns file content, line count and size. Use offset to start reading from a specific line (e.g. to jump to a search match).',
   inputSchema: InputSchema,
   outputSchema: OutputSchema,
   mode: 'read',
@@ -45,9 +46,11 @@ export const readFileTool: ToolDefinition<Input, Output> = {
 
     const raw = readFileSync(fullPath, 'utf-8')
     const allLines = raw.split('\n')
+    const startLine = input.offset ?? 0
     const maxLines = input.maxLines ?? 200
-    const truncated = allLines.length > maxLines
-    const content = truncated ? allLines.slice(0, maxLines).join('\n') : raw
+    const remaining = allLines.slice(startLine)
+    const truncated = remaining.length > maxLines
+    const content = truncated ? remaining.slice(0, maxLines).join('\n') : remaining.join('\n')
 
     return {
       path: input.path,

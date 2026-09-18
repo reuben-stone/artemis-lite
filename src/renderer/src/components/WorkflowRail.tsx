@@ -1,4 +1,6 @@
+import { useState } from 'react'
 import type { WorkflowItem, ProjectInfo } from '../App'
+import type { ReviewPR } from './ReviewDialog'
 
 interface Props {
   workflows: WorkflowItem[]
@@ -11,6 +13,7 @@ interface Props {
   onAddProject: () => void
   onSwitchProject: (id: string) => void
   onRemoveProject: (id: string) => void
+  prs: ReviewPR[]
 }
 
 function formatTime(iso: string): string {
@@ -37,8 +40,11 @@ function statusColor(status: string): string {
 
 export function WorkflowRail({
   workflows, activeId, onSelect, onDelete, onNew,
-  projects, activeProject, onAddProject, onSwitchProject, onRemoveProject
+  projects, activeProject, onAddProject, onSwitchProject, onRemoveProject,
+  prs
 }: Props) {
+  const [prCollapsed, setPrCollapsed] = useState(false)
+
   return (
     <div className="workflow-rail">
       {/* Portfolio section */}
@@ -78,6 +84,46 @@ export function WorkflowRail({
             + Add repository
           </button>
         </div>
+      </div>
+
+      {/* PR Queue section */}
+      <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+        <div
+          className="section-label"
+          style={{ cursor: prs.length > 0 ? 'pointer' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          onClick={() => { if (prs.length > 0) setPrCollapsed(!prCollapsed) }}
+          role={prs.length > 0 ? 'button' : undefined}
+          tabIndex={prs.length > 0 ? 0 : undefined}
+          onKeyDown={e => { if (e.key === 'Enter' && prs.length > 0) setPrCollapsed(!prCollapsed) }}
+        >
+          <span>PR Queue ({prs.length})</span>
+          {prs.length > 0 && (
+            <span style={{ fontSize: 10, color: 'var(--text-muted)', transform: prCollapsed ? 'rotate(-90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>&#9662;</span>
+          )}
+        </div>
+        {prs.length === 0 ? (
+          <div style={{ padding: '0 8px 8px', fontSize: 11, color: 'var(--text-muted)' }}>No open PRs</div>
+        ) : !prCollapsed && (
+          <div style={{ padding: '0 8px 8px' }}>
+            {prs.map(pr => (
+              <div
+                key={`${pr.project}-${pr.number}`}
+                className="project-item"
+                style={{ cursor: 'default' }}
+              >
+                <div style={{ fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>
+                  {pr.title}
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{pr.project}</span>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>#{pr.number}</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)' }}>{pr.headBranch}</span>
+                  {pr.draft && <span style={{ fontSize: 9, color: 'var(--text-muted)', fontStyle: 'italic' }}>draft</span>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="section-label">Workflows</div>
