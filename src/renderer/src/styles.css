@@ -662,11 +662,12 @@ body {
   background: var(--bg-panel);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  width: 680px;
+  width: 720px;
   max-width: 95vw;
-  max-height: 85vh;
-  overflow-y: auto;
+  max-height: 82vh;
   padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Dialog / Modal ─────────────────────────────────────────────── */
