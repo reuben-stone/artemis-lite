@@ -283,7 +283,7 @@ function ProjectIntegrations() {
     return <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>No projects registered.</div>
   }
 
-  const inputStyle = {
+  const inputStyle: React.CSSProperties = {
     width: '100%', padding: '4px 8px', fontSize: 11,
     background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius)', color: 'var(--text-primary)',
@@ -297,30 +297,36 @@ function ProjectIntegrations() {
           padding: '10px 12px', border: '1px solid var(--border-subtle)',
           borderRadius: 'var(--radius)', marginBottom: 8
         }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 8 }}>{p.name}</div>
+          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{p.name}</div>
+          {p.path && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, fontFamily: 'var(--mono)' }}>{p.path}</div>}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
             <div>
-              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Sentry project slug</label>
+              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Sentry project(s)</label>
               <input
                 value={edits[p.id]?.sentryProject ?? ''}
                 onChange={e => setEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], sentryProject: e.target.value } }))}
-                placeholder="e.g. lumi"
+                placeholder="e.g. lumi, lumilens"
+                title="Comma-separated for monorepos"
                 style={inputStyle}
               />
             </div>
             <div>
-              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>GA4 Property ID</label>
+              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>GA4 Property ID(s)</label>
               <input
                 value={edits[p.id]?.gaPropertyId ?? ''}
                 onChange={e => setEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], gaPropertyId: e.target.value } }))}
-                placeholder="e.g. 123456789"
+                placeholder="e.g. 345678901, 345678902"
+                title="Comma-separated for monorepos"
                 style={inputStyle}
               />
             </div>
           </div>
-          <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => handleSave(p.id)}>
-            {saved === p.id ? 'Saved' : 'Save'}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => handleSave(p.id)}>
+              {saved === p.id ? 'Saved' : 'Save'}
+            </button>
+            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Comma-separate for monorepos</span>
+          </div>
         </div>
       ))}
     </div>
