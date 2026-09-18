@@ -13,6 +13,7 @@ interface SecretState {
 
 export function SettingsDialog({ onClose }: Props) {
   const [secrets, setSecrets] = useState<SecretState>({ anthropic: false, github: false, sentry: false, google_analytics: false })
+  const [tab, setTab] = useState<'keys' | 'connections'>('keys')
   const [anthropicKey, setAnthropicKey] = useState('')
   const [githubToken, setGithubToken] = useState('')
   const [sentryToken, setSentryToken] = useState('')
@@ -83,8 +84,22 @@ export function SettingsDialog({ onClose }: Props) {
           <button className="btn btn-ghost" onClick={onClose} style={{ fontSize: 16 }}>&times;</button>
         </div>
 
-        <div style={{ padding: '16px 20px' }}>
-          <div className="section-label" style={{ padding: 0, marginBottom: 12 }}>API Keys</div>
+        {/* Tabs */}
+        <div style={{ display: 'flex', gap: 0, borderBottom: '1px solid var(--border-subtle)', padding: '0 20px' }}>
+          {(['keys', 'connections'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)} style={{
+              padding: '8px 14px', fontSize: 12, fontWeight: 500, border: 'none', background: 'none', cursor: 'pointer',
+              color: tab === t ? 'var(--accent)' : 'var(--text-muted)',
+              borderBottom: tab === t ? '2px solid var(--accent)' : '2px solid transparent'
+            }}>
+              {t === 'keys' ? 'API Keys' : 'Connections'}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ padding: '16px 20px', maxHeight: '60vh', overflowY: 'auto' }}>
+
+        {tab === 'keys' && <>
           <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 16 }}>
             Keys are encrypted at rest using your OS keychain. They never leave the main process.
           </p>
@@ -197,15 +212,6 @@ export function SettingsDialog({ onClose }: Props) {
             />
           </div>
 
-          <div className="section-label" style={{ padding: 0, marginTop: 20, marginBottom: 12 }}>Connections</div>
-          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
-            Map each project to its Sentry project slug and Google Analytics property ID.
-          </p>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>
-            Sentry org: <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-secondary)' }}>livana-group-ltd-1a</span>
-          </div>
-          <ProjectIntegrations />
-
           {message && (
             <div style={{
               fontSize: 12, padding: '8px 10px', borderRadius: 'var(--radius)',
@@ -223,6 +229,18 @@ export function SettingsDialog({ onClose }: Props) {
               {saving ? 'Saving...' : 'Save'}
             </button>
           </div>
+        </>}
+
+        {tab === 'connections' && <>
+          <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Map each project to its Sentry project slug and Google Analytics property ID.
+          </p>
+          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+            Sentry org: <span style={{ fontFamily: 'var(--mono)', color: 'var(--text-secondary)' }}>livana-group-ltd-1a</span>
+          </div>
+          <ProjectIntegrations />
+        </>}
+
         </div>
       </div>
     </div>
