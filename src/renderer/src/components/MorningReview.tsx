@@ -169,20 +169,36 @@ export function MorningReview({ onClose, onSelectWorkflow }: Props) {
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 10, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#eab308' }}>Sentry</div>
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{allSentryIssues.length}</div>
                 </div>
-                {allSentryIssues.map(issue => (
-                  <div key={issue.id} style={{
-                    padding: '12px 16px', border: '1px solid var(--border-subtle)',
-                    borderRadius: 6, marginBottom: 6
-                  }}>
-                    <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 3 }}>{issue.title}</div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 11 }}>
-                      <span style={{ color: 'var(--text-muted)' }}>{issue.projectSlug}</span>
-                      <span style={{ fontFamily: 'var(--mono)', color: issue.level === 'error' || issue.level === 'fatal' ? 'var(--status-danger)' : 'var(--text-muted)' }}>
-                        {issue.count} events
-                      </span>
+                {allSentryIssues.map(issue => {
+                  const colonIdx = issue.title.indexOf(':')
+                  const errorType = colonIdx > 0 ? issue.title.slice(0, colonIdx) : null
+                  const errorMsg = colonIdx > 0 ? issue.title.slice(colonIdx + 1).trim() : issue.title
+                  const levelColor = issue.level === 'fatal' ? 'var(--status-danger)' : issue.level === 'error' ? 'var(--status-danger)' : issue.level === 'warning' ? '#eab308' : 'var(--text-muted)'
+
+                  return (
+                    <div key={issue.id} style={{
+                      padding: '12px 16px', border: '1px solid var(--border-subtle)',
+                      borderRadius: 6, marginBottom: 6
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {errorType && (
+                            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: levelColor, marginBottom: 3 }}>{errorType}</div>
+                          )}
+                          <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                            {errorMsg.length > 120 ? errorMsg.slice(0, 120) + '...' : errorMsg}
+                          </div>
+                        </div>
+                        <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: levelColor, whiteSpace: 'nowrap', textAlign: 'right' }}>
+                          {issue.count} events
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 6, fontFamily: 'var(--mono)' }}>
+                        {issue.projectSlug}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
 
