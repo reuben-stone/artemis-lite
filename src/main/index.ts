@@ -35,6 +35,8 @@ import { getGitRemote, getGitStatus } from './git'
 import { GitHubClient, parseGitHubRemote } from './github'
 import type { GitHubIdentity } from './github-types'
 import { Scheduler } from './scheduler'
+import { createSentryClient } from './sentry'
+import { createAnalyticsClient } from './analytics'
 import { setSecret, hasSecret, clearSecret, requireAnthropicKey as requireKey, getGitHubToken } from './secrets'
 import { existsSync } from 'fs'
 
@@ -406,6 +408,32 @@ function registerIpcHandlers(): void {
       faultInjector
     })
     return { id: wf.id, goal: wf.goal, status: wf.status }
+  })
+
+  // ── Sentry + Analytics handlers ─────────────────────────────────
+
+  ipcMain.handle(IpcChannel.SENTRY_ISSUES, async (_event, raw: unknown) => {
+    const { projectSlug } = raw as { projectSlug: string }
+    const client = createSentryClient()
+    if (!client) return { issues: [], error: 'Sentry not configured' }
+    try {
+      const issues = await client.listIssues(projectSlug)
+      return { issues }
+    } catch (err: any) {
+      return { issues: [], error: err.message }
+    }
+  })
+
+  ipcMain.handle(IpcChannel.ANALYTICS_SUMMARY, async (_event, raw: unknown) => {
+    const { propertyId, label } = raw as { propertyId: string; label: string }
+    const client = createAnalyticsClient()
+    if (!client) return { summary: null, error: 'Google Analytics not configured' }
+    try {
+      const summary = await client.getPropertySummary(propertyId, label)
+      return { summary }
+    } catch (err: any) {
+      return { summary: null, error: err.message }
+    }
   })
 
   // ── Secret handlers (set/has/clear - never expose actual value) ──

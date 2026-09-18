@@ -34,6 +34,10 @@ export const IpcChannel = {
   SECRET_HAS: 'secret:has',
   SECRET_CLEAR: 'secret:clear',
 
+  // Sentry + Analytics
+  SENTRY_ISSUES: 'sentry:issues',
+  ANALYTICS_SUMMARY: 'analytics:summary',
+
   // Scheduler
   SCHEDULE_LIST: 'schedule:list',
   SCHEDULE_ADD: 'schedule:add',

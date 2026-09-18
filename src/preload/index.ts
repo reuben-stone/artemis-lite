@@ -60,6 +60,14 @@ const api = {
     list: () =>
       ipcRenderer.invoke(IpcChannel.APPROVAL_LIST)
   },
+  sentry: {
+    issues: (input: { projectSlug: string }) =>
+      ipcRenderer.invoke(IpcChannel.SENTRY_ISSUES, input)
+  },
+  analytics: {
+    summary: (input: { propertyId: string; label: string }) =>
+      ipcRenderer.invoke(IpcChannel.ANALYTICS_SUMMARY, input)
+  },
   secrets: {
     set: (input: { name: string; value: string }) =>
       ipcRenderer.invoke(IpcChannel.SECRET_SET, input),
