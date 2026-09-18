@@ -1,75 +1,114 @@
 # Artemis Lite
 
-Artemis Lite is a deliberately smaller reconstruction of [Artemis](https://github.com/reuben-stone/artemis), an Electron desktop application that acts as an AI operations layer for a software ecosystem.
+A persistent engineering operations system for supervising a portfolio of software repositories. Artemis Lite is a reconstruction of the original [Artemis](https://github.com/reuben-stone/artemis) around explicit workflow state, selective context, durable recovery and measurable execution.
 
 ## Why it exists
 
-The original Artemis — **Autonomous Repository-Tending Engineering, Monitoring & Intelligence System** — was built to sit above multiple repositories, produce cross-project briefings, dispatch worker agents into isolated worktrees, and return gated pull requests for human review. It worked, but building and using it exposed a harder engineering problem: giving a model capabilities is relatively easy; controlling context, state, side effects, recovery and observability around those capabilities is not.
+The original Artemis proved that a desktop AI operations layer could coordinate meaningful engineering capabilities across a repository ecosystem. Building and using it exposed a harder problem: giving a model capabilities is relatively easy; controlling context, state, side effects, recovery and observability around those capabilities is not.
 
 Artemis Lite tests a different architectural hypothesis:
 
-> **Use the minimum amount of agentic behaviour required to reliably complete the task.**
+> **Deterministic shell, probabilistic core.**
 
-The application owns workflow lifecycle, persistence, approvals, retries, recovery, context budgets and tracing. The model owns only the decisions that genuinely require reasoning. The mission — repository-tending engineering — stays the same. The control model changes.
+The application owns workflow lifecycle, persistence, approvals, retries, recovery, context budgets and tracing. The model owns only the decisions that genuinely require reasoning.
 
-## Architecture
+## Setup
 
-**Deterministic shell, probabilistic core.**
+### Requirements
 
-```
-Renderer (React)
-    |
-typed IPC (Zod-validated)
-    |
-Workflow Service
-  ├── Explicit state machine
-  ├── Context builder
-  ├── Capability registry
-  └── Model provider (adapter)
-    |
-SQLite persistence
-  workflows / steps / traces / approvals
-  idempotency / usage / checkpoints
-```
+- macOS (Apple Silicon or Intel)
+- Node.js 20+
+- Git
 
-Key properties:
-
-- **Explicit workflow state** — transitions are application-owned and persisted before UI notification
-- **Typed tool contracts** — inputs and outputs validated at the boundary
-- **Approval as state** — consequential writes pause on a persisted approval record
-- **Durable recovery** — restarting Electron does not mean restarting the job
-- **Idempotency** — completed side effects are not repeated after recovery
-- **Tool-specific reconciliation** — ambiguous side effects are checked against reality, not blindly retried
-- **Observable usage** — model calls, tokens, cost and duration persisted per workflow
-- **Fault injection** — deterministic Failure Lab for testing retry and recovery behaviour
-
-## Current state
-
-Working prototype. The core architecture is implemented and tested:
-
-- Electron + React + TypeScript with `contextIsolation`, `sandbox: true`, restrictive CSP
-- SQLite persistence (workflows, steps, traces, approvals, idempotency ledger, usage records)
-- Workflow orchestrator with explicit state machine and validated transitions
-- Model provider boundary with Anthropic adapter (domain-owned types, no SDK leakage)
-- Tool registry with read (`list_workspace_files`) and write (`create_work_item`) tools
-- Persisted approval gate for write operations
-- Workflow interruption and recovery from SQLite state
-- Failure Lab with 8 injectable fault types and bounded retry policy
-- 122 tests covering state machine, persistence, idempotency, tools, recovery, fault injection and retry semantics
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/DECISIONS.md](docs/DECISIONS.md) for design rationale.
-
-## Running locally
-
-Requirements: macOS, Node 20+, an Anthropic API key.
+### Install
 
 ```bash
+git clone https://github.com/reuben-stone/artemis-lite.git
+cd artemis-lite
 npm install
-export ANTHROPIC_API_KEY=sk-ant-...
+```
+
+### Configure API Keys
+
+Artemis Lite stores API keys encrypted at rest using your OS keychain (Electron safeStorage).
+
+**Option A: Settings UI**
+
+1. Run `npm run dev` to start the app
+2. Click **Settings** in the top bar
+3. Enter your API keys and click Save
+
+**Option B: Environment file**
+
+Create a `.env` file in the project root (already gitignored):
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+GITHUB_TOKEN=ghp_...
+```
+
+Environment variables take precedence over stored keys.
+
+### API Keys
+
+| Key | Required | Purpose | Where to get it |
+|-----|----------|---------|----------------|
+| Anthropic API Key | Yes | Model calls (planning, verification) | [console.anthropic.com](https://console.anthropic.com) |
+| GitHub Token | Optional | Read issues, PRs, checks; create PRs | [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens) - needs Issues (read), Pull Requests (read/write), Checks (read) |
+
+### Run
+
+```bash
 npm run dev
 ```
 
-Note: `better-sqlite3` is a native module compiled against Electron's Node ABI. After running `npm test` (which rebuilds for system Node), run `npx electron-builder install-app-deps` before `npm run dev`.
+**Note:** `better-sqlite3` is a native module. After running tests (which rebuild for system Node), run this before starting the app:
+
+```bash
+npx electron-builder install-app-deps
+```
+
+## Architecture
+
+```
+Electron Client (React)
+    |
+typed IPC (Zod-validated, sandboxed)
+    |
+Workflow Orchestrator
+  ├── Explicit state machine + recovery
+  ├── Context Builder (budgeted, per-step)
+  ├── Tool Registry (14 tools, read/write modes)
+  ├── Model Provider (Anthropic adapter)
+  ├── Scheduler (daily cron, Morning Review)
+  └── Approval gates
+    |
+SQLite persistence (WAL)
+  workflows / steps / traces / approvals
+  idempotency / usage / context packets / results
+    |
+Encrypted secrets (OS keychain via safeStorage)
+```
+
+### Tools
+
+**Read:** `list_workspace_files`, `read_file`, `search_repository`, `run_command` (test/typecheck/lint/build), `git_diff`, `get_issues`, `get_issue_detail`, `get_pull_requests`, `get_pr_detail`
+
+**Write (approval-gated):** `write_file`, `git_commit`, `create_branch`, `create_pull_request`, `create_work_item`
+
+### Key Properties
+
+- **Explicit workflow state** - transitions are application-owned and persisted
+- **Structured Results** - deterministic summary built from validated tool outputs, not model prose
+- **Selective context** - per-step budgeted evidence with observable selection/exclusion
+- **Durable recovery** - resume from SQLite state after process interruption
+- **Idempotency** - completed side effects are not repeated after recovery
+- **Tool-specific reconciliation** - ambiguous outcomes checked against reality, not blindly retried
+- **Observable usage** - model calls, tokens, cost and duration persisted per workflow
+- **Fault injection** - Failure Lab with 8 injectable fault types for testing reliability
+- **Multi-project portfolio** - register and switch between repositories
+- **Morning Review** - aggregated workflow results across the portfolio
+- **Encrypted secrets** - API keys stored via OS keychain, never exposed to renderer
 
 ## Commands
 
@@ -77,18 +116,22 @@ Note: `better-sqlite3` is a native module compiled against Electron's Node ABI. 
 npm run dev          # Electron dev server
 npm run build        # Production build
 npm run typecheck    # TypeScript check (both configs)
-npm test             # Vitest (rebuild for system Node first)
+npm test             # Vitest (215 tests across 14 files)
 ```
 
-## What comes next
+## Documentation
 
-The [feature update](docs/ARTEMIS-LITE-TECHNICAL-BRIEF.md) outlines the path from prototype to the full repository-tending workflow: project/repository domain, GitHub read adapter, capability selection, worktree workers, gated PR creation, visual verification, retrieval experiments and multi-repo morning review.
+- [Architecture](docs/ARCHITECTURE.md) - system design and boundaries
+- [Decisions](docs/DECISIONS.md) - architectural decision records
+- [Roadmap](docs/ROADMAP.md) - implementation phases
+- [North Star Architecture](docs/ARCHITECTURE-NORTH-STAR.md) - persistent portfolio operations destination
+- [Context Feedback Roadmap](docs/CONTEXT-FEEDBACK-ROADMAP.md) - context evaluation direction
 
 ## Related
 
-- [Original Artemis](https://github.com/reuben-stone/artemis) — the full multi-agent operations system that motivated this rebuild
-- [Case study](https://github.com/reuben-stone/artemis-case-study) — the engineering case study documenting the evolution
+- [Original Artemis](https://github.com/reuben-stone/artemis) - the full multi-agent operations system
+- [Engineering Case Study](https://reubenstone.co.uk/work/artemis/) - the story of both systems
 
 ## Author
 
-Reuben Stone
+Reuben Alexander Stone
