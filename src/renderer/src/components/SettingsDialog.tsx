@@ -247,33 +247,71 @@ export function SettingsDialog({ onClose }: Props) {
   )
 }
 
+interface IntegrationMapping {
+  label: string
+  sentrySlug: string
+  gaPropertyId: string
+  subdir: string
+}
+
 function ProjectIntegrations() {
   const [projects, setProjects] = useState<any[]>([])
-  const [edits, setEdits] = useState<Record<string, { sentryProject: string; gaPropertyId: string }>>({})
+  const [mappings, setMappings] = useState<Record<string, IntegrationMapping[]>>({})
   const [saved, setSaved] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     const list = await window.artemis.projects.list()
     setProjects(list)
-    const e: Record<string, { sentryProject: string; gaPropertyId: string }> = {}
+    const m: Record<string, IntegrationMapping[]> = {}
     for (const p of list) {
-      e[p.id] = {
-        sentryProject: p.sentryProject ?? '',
-        gaPropertyId: p.gaPropertyId ?? ''
+      // Parse existing stored JSON or build from legacy fields
+      try {
+        const stored = p.sentryProject
+        if (stored && stored.startsWith('[')) {
+          m[p.id] = JSON.parse(stored)
+        } else if (stored) {
+          // Legacy: single slug
+          m[p.id] = [{ label: p.name, sentrySlug: stored, gaPropertyId: p.gaPropertyId ?? '', subdir: '' }]
+        } else {
+          m[p.id] = []
+        }
+      } catch {
+        m[p.id] = []
       }
     }
-    setEdits(e)
+    setMappings(m)
   }, [])
 
   useEffect(() => { load() }, [load])
 
+  const addMapping = (projectId: string) => {
+    setMappings(prev => ({
+      ...prev,
+      [projectId]: [...(prev[projectId] ?? []), { label: '', sentrySlug: '', gaPropertyId: '', subdir: '' }]
+    }))
+  }
+
+  const updateMapping = (projectId: string, index: number, field: keyof IntegrationMapping, value: string) => {
+    setMappings(prev => ({
+      ...prev,
+      [projectId]: (prev[projectId] ?? []).map((m, i) => i === index ? { ...m, [field]: value } : m)
+    }))
+  }
+
+  const removeMapping = (projectId: string, index: number) => {
+    setMappings(prev => ({
+      ...prev,
+      [projectId]: (prev[projectId] ?? []).filter((_, i) => i !== index)
+    }))
+  }
+
   const handleSave = async (projectId: string) => {
-    const e = edits[projectId]
-    if (!e) return
+    const maps = mappings[projectId] ?? []
+    // Store as JSON in sentryProject field, and first gaPropertyId in gaPropertyId field
     await window.artemis.projects.updateIntegrations({
       projectId,
-      sentryProject: e.sentryProject || undefined,
-      gaPropertyId: e.gaPropertyId || undefined
+      sentryProject: JSON.stringify(maps),
+      gaPropertyId: maps.map(m => m.gaPropertyId).filter(Boolean).join(',') || undefined
     })
     setSaved(projectId)
     setTimeout(() => setSaved(null), 2000)
@@ -284,7 +322,7 @@ function ProjectIntegrations() {
   }
 
   const inputStyle: React.CSSProperties = {
-    width: '100%', padding: '4px 8px', fontSize: 11,
+    width: '100%', padding: '4px 6px', fontSize: 11,
     background: 'var(--bg-panel)', border: '1px solid var(--border-subtle)',
     borderRadius: 'var(--radius)', color: 'var(--text-primary)',
     fontFamily: 'var(--mono)'
@@ -292,43 +330,49 @@ function ProjectIntegrations() {
 
   return (
     <div>
-      {projects.map((p: any) => (
-        <div key={p.id} style={{
-          padding: '10px 12px', border: '1px solid var(--border-subtle)',
-          borderRadius: 'var(--radius)', marginBottom: 8
-        }}>
-          <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{p.name}</div>
-          {p.path && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, fontFamily: 'var(--mono)' }}>{p.path}</div>}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
-            <div>
-              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Sentry project(s)</label>
-              <input
-                value={edits[p.id]?.sentryProject ?? ''}
-                onChange={e => setEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], sentryProject: e.target.value } }))}
-                placeholder="e.g. lumi, lumilens"
-                title="Comma-separated for monorepos"
-                style={inputStyle}
-              />
-            </div>
-            <div>
-              <label style={{ fontSize: 10, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>GA4 Property ID(s)</label>
-              <input
-                value={edits[p.id]?.gaPropertyId ?? ''}
-                onChange={e => setEdits(prev => ({ ...prev, [p.id]: { ...prev[p.id], gaPropertyId: e.target.value } }))}
-                placeholder="e.g. 345678901, 345678902"
-                title="Comma-separated for monorepos"
-                style={inputStyle}
-              />
+      {projects.map((p: any) => {
+        const maps = mappings[p.id] ?? []
+        return (
+          <div key={p.id} style={{
+            padding: '10px 12px', border: '1px solid var(--border-subtle)',
+            borderRadius: 'var(--radius)', marginBottom: 8
+          }}>
+            <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{p.name}</div>
+            {p.path && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginBottom: 8, fontFamily: 'var(--mono)' }}>{p.path}</div>}
+
+            {maps.map((m, i) => (
+              <div key={i} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr 20px', gap: 6, marginBottom: 6, alignItems: 'end' }}>
+                <div>
+                  {i === 0 && <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Label</label>}
+                  <input value={m.label} onChange={e => updateMapping(p.id, i, 'label', e.target.value)} placeholder="Lumi" style={inputStyle} />
+                </div>
+                <div>
+                  {i === 0 && <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Sentry slug</label>}
+                  <input value={m.sentrySlug} onChange={e => updateMapping(p.id, i, 'sentrySlug', e.target.value)} placeholder="lumi" style={inputStyle} />
+                </div>
+                <div>
+                  {i === 0 && <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>GA4 Property</label>}
+                  <input value={m.gaPropertyId} onChange={e => updateMapping(p.id, i, 'gaPropertyId', e.target.value)} placeholder="345678901" style={inputStyle} />
+                </div>
+                <div>
+                  {i === 0 && <label style={{ fontSize: 9, color: 'var(--text-muted)', display: 'block', marginBottom: 2 }}>Subdir</label>}
+                  <input value={m.subdir} onChange={e => updateMapping(p.id, i, 'subdir', e.target.value)} placeholder="apps/lumi" style={inputStyle} />
+                </div>
+                <button onClick={() => removeMapping(p.id, i)} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13, padding: 0, lineHeight: 1 }} title="Remove">&times;</button>
+              </div>
+            ))}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 4 }}>
+              <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => addMapping(p.id)}>+ Add mapping</button>
+              {maps.length > 0 && (
+                <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => handleSave(p.id)}>
+                  {saved === p.id ? 'Saved' : 'Save'}
+                </button>
+              )}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button className="btn btn-ghost" style={{ fontSize: 10 }} onClick={() => handleSave(p.id)}>
-              {saved === p.id ? 'Saved' : 'Save'}
-            </button>
-            <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>Comma-separate for monorepos</span>
-          </div>
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
