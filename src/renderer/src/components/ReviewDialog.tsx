@@ -20,6 +20,7 @@ export interface ReviewData {
 export interface OperationalIssue {
   id: string
   source: 'sentry'
+  projectId: string
   projectLabel: string
   projectSlug: string
   title: string
@@ -63,10 +64,11 @@ interface Props {
   onClose: () => void
   onSelectWorkflow: (workflowId: string) => void
   onCreateWorkflow: (goal: string) => void
+  onInvestigate: (projectId: string, goal: string) => void
   initialTab?: ReviewTab
 }
 
-export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, initialTab = 'morning' }: Props) {
+export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, onInvestigate, initialTab = 'morning' }: Props) {
   const [tab, setTab] = useState<ReviewTab>(initialTab)
   const [data, setData] = useState<ReviewData>({
     projects: [], issues: [], prs: [], analytics: [], workflows: [], portfolioRows: [], loading: true
@@ -98,6 +100,7 @@ export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, init
                     const colonIdx = i.title.indexOf(':')
                     return {
                       id: i.id, source: 'sentry' as const,
+                      projectId: project.id,
                       projectLabel: m.label || project.name, projectSlug: m.sentrySlug,
                       title: i.title,
                       errorType: colonIdx > 0 ? i.title.slice(0, colonIdx) : null,
@@ -218,10 +221,10 @@ export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, init
           ) : (
             <>
               {tab === 'morning' && (
-                <ReviewMorning data={data} onSwitchTab={switchTab} onSelectWorkflow={onSelectWorkflow} onCreateWorkflow={onCreateWorkflow} onClose={onClose} />
+                <ReviewMorning data={data} onSwitchTab={switchTab} onSelectWorkflow={onSelectWorkflow} onInvestigate={(projectId, goal) => { onInvestigate(projectId, goal); onClose() }} onClose={onClose} />
               )}
               {tab === 'issues' && (
-                <ReviewIssues data={data} onSelectWorkflow={onSelectWorkflow} onCreateWorkflow={(goal) => { onCreateWorkflow(goal); onClose() }} onClose={onClose} />
+                <ReviewIssues data={data} onSelectWorkflow={onSelectWorkflow} onInvestigate={(projectId, goal) => { onInvestigate(projectId, goal); onClose() }} onClose={onClose} />
               )}
               {tab === 'prs' && (
                 <ReviewPRQueue data={data} />

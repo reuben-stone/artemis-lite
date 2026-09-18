@@ -5,11 +5,11 @@ interface Props {
   data: ReviewData
   onSwitchTab: (tab: ReviewTab) => void
   onSelectWorkflow: (workflowId: string) => void
-  onCreateWorkflow: (goal: string) => void
+  onInvestigate: (projectId: string, goal: string) => void
   onClose: () => void
 }
 
-export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onCreateWorkflow, onClose }: Props) {
+export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestigate, onClose }: Props) {
   const today = new Date()
   const dateStr = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
@@ -50,8 +50,7 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onCreateWor
               <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
                 <button className="review-action" onClick={() => onSwitchTab('issues')}>View issue &rarr;</button>
                 <button className="review-action-primary" onClick={() => {
-                  onCreateWorkflow(`Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`)
-                  onClose()
+                  onInvestigate(issue.projectId, `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`)
                 }}>Investigate</button>
               </div>
             </div>

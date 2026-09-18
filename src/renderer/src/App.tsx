@@ -363,6 +363,12 @@ export function App() {
           onCreateWorkflow={(goal) => {
             handleCreate(goal)
           }}
+          onInvestigate={async (projectId, goal) => {
+            // Switch to the correct project first, then create workflow
+            await window.artemis.projects.setActive({ projectId })
+            await refreshProjects()
+            handleCreate(goal)
+          }}
         />
       )}
     </div>

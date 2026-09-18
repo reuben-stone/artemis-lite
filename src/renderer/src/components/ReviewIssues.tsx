@@ -3,11 +3,11 @@ import type { ReviewData } from './ReviewDialog'
 interface Props {
   data: ReviewData
   onSelectWorkflow: (workflowId: string) => void
-  onCreateWorkflow: (goal: string) => void
+  onInvestigate: (projectId: string, goal: string) => void
   onClose: () => void
 }
 
-export function ReviewIssues({ data, onSelectWorkflow, onCreateWorkflow, onClose }: Props) {
+export function ReviewIssues({ data, onSelectWorkflow, onInvestigate, onClose }: Props) {
   const getInvestigationState = (issueTitle: string) => {
     const matching = data.workflows.find(w => w.goal?.includes(issueTitle.slice(0, 40)))
     if (!matching) return { state: 'uninvestigated' as const, workflowId: null }
@@ -42,7 +42,8 @@ export function ReviewIssues({ data, onSelectWorkflow, onCreateWorkflow, onClose
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
               {investigation.state === 'uninvestigated' && (
-                <button className="review-action-primary" onClick={() => onCreateWorkflow(
+                <button className="review-action-primary" onClick={() => onInvestigate(
+                  issue.projectId,
                   `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`
                 )}>Investigate</button>
               )}
