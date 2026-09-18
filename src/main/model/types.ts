@@ -26,7 +26,7 @@ export interface ModelResult<T> {
 export const PlanStepSchema = z.object({
   id: z.string(),
   objective: z.string(),
-  preferredAction: z.enum(['retrieve', 'inspect_workspace', 'use_tool', 'ask_user', 'verify', 'investigate']),
+  preferredAction: z.enum(['retrieve', 'inspect_workspace', 'use_tool', 'ask_user', 'verify', 'investigate', 'delegate_engineering']),
   toolName: z.string().optional(),
   toolArgs: z.record(z.unknown()).optional(),
   reason: z.string().max(300)

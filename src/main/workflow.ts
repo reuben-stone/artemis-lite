@@ -27,6 +27,7 @@ import {
   InjectedInterruptError, InjectedTimeoutError,
   InjectedInvalidOutputError, InjectedProviderError, InjectedToolFailureError
 } from './fault-injector'
+import { executeDelegatedEngineering } from './delegate/claude-code'
 
 export { validateTransition }
 
@@ -1023,11 +1024,17 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     trace(wf.id, 'workflow.executing', { status: 'start' })
     emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
 
-    // Dispatch: investigation loop or normal plan execution
+    // Dispatch: delegated engineering, investigation loop, or normal plan execution
     const isInvestigation = plan.steps.length === 1 && plan.steps[0].preferredAction === 'investigate'
-    const stepResults = isInvestigation
-      ? await executeInvestigation(wf, plan, deps)
-      : await executePlanSteps(wf, plan, [], deps)
+    const isDelegatedEngineering = plan.steps.length === 1 && plan.steps[0].preferredAction === 'delegate_engineering'
+    const stepResults = isDelegatedEngineering
+      ? await executeDelegatedEngineering(wf, plan, {
+          workspacePath, emit,
+          waitForApproval: (wfId, approval, e) => waitForApproval(wfId, approval, e)
+        })
+      : isInvestigation
+        ? await executeInvestigation(wf, plan, deps)
+        : await executePlanSteps(wf, plan, [], deps)
 
     // Verifying
     const verification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
@@ -1171,9 +1178,15 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         transition(wf, 'executing')
         emit({ type: 'workflow.status', workflowId: wf.id, status: 'executing' })
         const isInvestigationReplan = plan.steps.length === 1 && plan.steps[0].preferredAction === 'investigate'
-        const stepResults = isInvestigationReplan
-          ? await executeInvestigation(wf, plan, deps)
-          : await executePlanSteps(wf, plan, listSteps(wf.id), deps)
+        const isDelegatedReplan = plan.steps.length === 1 && plan.steps[0].preferredAction === 'delegate_engineering'
+        const stepResults = isDelegatedReplan
+          ? await executeDelegatedEngineering(wf, plan, {
+              workspacePath, emit,
+              waitForApproval: (wfId, approval, e) => waitForApproval(wfId, approval, e)
+            })
+          : isInvestigationReplan
+            ? await executeInvestigation(wf, plan, deps)
+            : await executePlanSteps(wf, plan, listSteps(wf.id), deps)
         resumeVerification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
         resumeStepResults = stepResults
         break
@@ -1197,9 +1210,15 @@ export async function resumeWorkflow(workflowId: string, deps: OrchestratorDeps)
         }
 
         const isInvestigationResume = plan.steps.length === 1 && plan.steps[0].preferredAction === 'investigate'
-        const stepResults = isInvestigationResume
-          ? await executeInvestigation(wf, plan, deps)
-          : await executePlanSteps(wf, plan, listSteps(wf.id), deps)
+        const isDelegatedResume = plan.steps.length === 1 && plan.steps[0].preferredAction === 'delegate_engineering'
+        const stepResults = isDelegatedResume
+          ? await executeDelegatedEngineering(wf, plan, {
+              workspacePath, emit,
+              waitForApproval: (wfId, approval, e) => waitForApproval(wfId, approval, e)
+            })
+          : isInvestigationResume
+            ? await executeInvestigation(wf, plan, deps)
+            : await executePlanSteps(wf, plan, listSteps(wf.id), deps)
         resumeVerification = await runVerification(wf, plan, stepResults, listSteps(wf.id), deps)
         resumeStepResults = stepResults
         break

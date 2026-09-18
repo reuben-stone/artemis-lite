@@ -123,10 +123,10 @@ Rules:
 - Do not include steps that require tools not in the list.
 - Return ONLY the JSON object, no markdown fences or explanation.
 
-Investigation mode:
-- For goals that require exploring a codebase (error investigation, debugging, finding specific code): use preferredAction "investigate" with a SINGLE step. Set the objective to a clear hypothesis or investigation question. The system will run a bounded iterative loop where you can observe results and choose what to inspect next.
-- For goals with known concrete actions (create branch, write file, run tests, create PR): use the normal multi-step plan with specific tool calls.
-- When in doubt about whether to investigate or plan concrete steps, prefer "investigate" - it allows adaptive evidence gathering.`)
+Execution modes:
+- For goals that require investigating or fixing code (error investigation, bug fixes, implementing changes): use preferredAction "delegate_engineering" with a SINGLE step. Set the objective to a clear description of what needs to be investigated or fixed. The system will delegate to a specialised coding agent that can search, read and modify the repository.
+- For goals with known concrete actions that use only the available tools (create branch, list issues, run tests): use the normal multi-step plan.
+- Prefer "delegate_engineering" for any goal that requires understanding repository code. The coding agent is better at repository exploration than the bounded tool set.`)
 
   // Build user message with context
   const userParts: string[] = []
