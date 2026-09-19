@@ -41,18 +41,40 @@ export function ReviewIssues({ data, onSelectWorkflow, onInvestigate, onClose }:
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-              {investigation.state === 'uninvestigated' && (
-                <button className="review-action-primary" onClick={() => onInvestigate(
-                  issue.projectId,
-                  `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`
-                )}>Investigate</button>
-              )}
-              {investigation.state === 'investigating' && (
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)' }}>Investigating...</span>
-              )}
-              {investigation.state === 'complete' && investigation.workflowId && (
-                <button className="review-action" onClick={() => { onSelectWorkflow(investigation.workflowId!); onClose() }}>View result &rarr;</button>
-              )}
+              {(() => {
+                // Check if a PR already exists for this issue
+                const matchingPr = data.prs?.find(pr =>
+                  pr.headBranch.startsWith('artemis/') &&
+                  pr.title.toLowerCase().includes(issue.projectLabel.toLowerCase())
+                )
+                if (matchingPr) {
+                  const proj = (data.projects ?? []).find((p: any) => p.name === matchingPr.project)
+                  const prUrl = proj?.githubOwner && proj?.githubRepo
+                    ? `https://github.com/${proj.githubOwner}/${proj.githubRepo}/pull/${matchingPr.number}`
+                    : null
+                  return (
+                    <>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#22c55e' }}>PR #{matchingPr.number} open</span>
+                      {prUrl && <a href={prUrl} target="_blank" rel="noopener" className="review-action" style={{ textDecoration: 'none' }}>Review PR &rarr;</a>}
+                    </>
+                  )
+                }
+                if (investigation.state === 'uninvestigated') {
+                  return (
+                    <button className="review-action-primary" onClick={() => onInvestigate(
+                      issue.projectId,
+                      `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`
+                    )}>Investigate</button>
+                  )
+                }
+                if (investigation.state === 'investigating') {
+                  return <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)' }}>Investigating...</span>
+                }
+                if (investigation.state === 'complete' && investigation.workflowId) {
+                  return <button className="review-action" onClick={() => { onSelectWorkflow(investigation.workflowId!); onClose() }}>View result &rarr;</button>
+                }
+                return null
+              })()}
             </div>
           </div>
         )
