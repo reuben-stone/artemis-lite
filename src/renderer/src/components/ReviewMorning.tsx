@@ -107,15 +107,27 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
             <div className="review-section-label" style={{ color: '#22c55e' }}>Completed</div>
             <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{succeededWf.length}</div>
           </div>
-          {succeededWf.slice(0, 3).map((wf: any) => (
-            <div key={wf.id} className="review-card">
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{wf.goal}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
-                {wf.result.summary.length > 100 ? wf.result.summary.slice(0, 100) + '...' : wf.result.summary}
+          {succeededWf.slice(0, 3).map((wf: any) => {
+            // Check if this workflow produced a PR
+            const matchingPr = data.prs.find(pr =>
+              pr.headBranch.startsWith('artemis/') &&
+              wf.goal?.toLowerCase().includes(pr.project?.toLowerCase())
+            )
+            return (
+              <div key={wf.id} className="review-card">
+                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{wf.goal}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
+                  {wf.result.summary.length > 100 ? wf.result.summary.slice(0, 100) + '...' : wf.result.summary}
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button className="review-action" onClick={() => { onSelectWorkflow(wf.id); onClose() }}>Inspect workflow &rarr;</button>
+                  {matchingPr && (
+                    <button className="review-action" onClick={() => onSwitchTab('prs')}>PR #{matchingPr.number} &rarr;</button>
+                  )}
+                </div>
               </div>
-              <button className="review-action" onClick={() => { onSelectWorkflow(wf.id); onClose() }}>Inspect workflow &rarr;</button>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 
