@@ -72,12 +72,12 @@ export function TopBar({ workflow, usage, busy, project, onOpenSettings, onOpenM
         >
           Settings
         </button>
-        {!showInspector && onToggleInspector && (
+        {onToggleInspector && (
           <button
             className="btn btn-ghost"
-            style={{ fontSize: 13, padding: '2px 6px', marginRight: 8 }}
+            style={{ fontSize: 13, padding: '2px 6px', marginRight: 8, color: showInspector ? 'var(--accent)' : undefined }}
             onClick={onToggleInspector}
-            title="Show inspector"
+            title={showInspector ? 'Hide inspector' : 'Show inspector'}
           >
             Inspector
           </button>
