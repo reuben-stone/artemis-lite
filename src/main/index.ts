@@ -178,6 +178,8 @@ function registerIpcHandlers(): void {
         active: p.id === activeId,
         sentryProject: p.sentryProject ?? null,
         gaPropertyId: p.gaPropertyId ?? null,
+        githubOwner: p.githubOwner ?? null,
+        githubRepo: p.githubRepo ?? null,
         createdAt: p.createdAt
       })
     }
@@ -486,7 +488,8 @@ function registerIpcHandlers(): void {
       const execFileAsync = promisify(execFileCb)
       const { GITHUB_TOKEN, GH_TOKEN, ...cleanEnv } = process.env
       const env = { ...cleanEnv, PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin` }
-      const { stdout } = await execFileAsync('gh', [
+      const ghPath = '/opt/homebrew/bin/gh'
+      const { stdout } = await execFileAsync(ghPath, [
         'pr', 'list', '--repo', `${owner}/${repo}`, '--state', 'open',
         '--json', 'number,title,headRefName,baseRefName,author,isDraft,state,labels',
         '--limit', '30'
@@ -509,6 +512,7 @@ function registerIpcHandlers(): void {
       }))
       return { pullRequests }
     } catch (err: any) {
+      console.error('[PR Queue] Failed to load PRs:', err.message)
       return { pullRequests: [], error: err.message }
     }
   })

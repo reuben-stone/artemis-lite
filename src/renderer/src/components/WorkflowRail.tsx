@@ -109,16 +109,13 @@ export function WorkflowRail({
               <div
                 key={`${pr.project}-${pr.number}`}
                 className="project-item"
-                style={{ cursor: 'default' }}
+                style={{ cursor: 'default', padding: '6px 8px' }}
               >
-                <div style={{ fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 2 }}>
+                <div style={{ fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {pr.title}
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>{pr.project}</span>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>#{pr.number}</span>
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)' }}>{pr.headBranch}</span>
-                  {pr.draft && <span style={{ fontSize: 9, color: 'var(--text-muted)', fontStyle: 'italic' }}>draft</span>}
+                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {pr.project} &middot; #{pr.number}{pr.draft ? ' &middot; draft' : ''}
                 </div>
               </div>
             ))}

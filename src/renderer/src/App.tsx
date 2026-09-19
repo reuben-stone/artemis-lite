@@ -20,6 +20,8 @@ export interface ProjectInfo {
   active?: boolean
   sentryProject?: string | null
   gaPropertyId?: string | null
+  githubOwner?: string | null
+  githubRepo?: string | null
   createdAt: string
 }
 
