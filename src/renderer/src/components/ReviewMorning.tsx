@@ -39,7 +39,17 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{dateStr}</div>
-      <div style={{ fontSize: 15, color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 8 }}>Good morning, Reuben.</div>
+      <div style={{ fontSize: 15, color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 8 }}>
+        Good morning, Reuben.{' '}
+        {unresolvedIssues.length > 0 || artemisPrs.length > 0 ? (
+          <>
+            {unresolvedIssues.length > 0 && `${unresolvedIssues.length} issue${unresolvedIssues.length !== 1 ? 's need' : ' needs'} your attention`}
+            {unresolvedIssues.length > 0 && artemisPrs.length > 0 && ' and '}
+            {artemisPrs.length > 0 && `${artemisPrs.length} verified fix${artemisPrs.length !== 1 ? 'es are' : ' is'} ready for review`}
+            .
+          </>
+        ) : data.issues.length === 0 ? 'Everything looks clear.' : ''}
+      </div>
       <div style={{ display: 'flex', gap: 20, flexWrap: 'wrap', fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)', marginBottom: 28 }}>
         {parts.map((p, i) => <span key={i}>{p}</span>)}
       </div>
