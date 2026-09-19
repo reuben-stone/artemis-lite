@@ -283,7 +283,7 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
       )}
 
       {/* Publication card — shown when delegation produced changes */}
-      {isTerminal && result?.status === 'succeeded' && (() => {
+      {isTerminal && (() => {
         const delegateStep = steps.find(s => s.toolName === 'delegate_engineering' && s.status === 'completed')
         if (!delegateStep?.outputData) return null
         try {
@@ -303,9 +303,15 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
           }
 
           const checks = obs.checks ?? []
+          const nonSkipped = checks.filter((c: any) => !c.skipped)
+          const failed = nonSkipped.filter((c: any) => !c.passed)
+          const verificationPassed = nonSkipped.length > 0 && failed.length === 0
+
           return (
-            <div style={{ padding: '16px 20px', border: '1px solid var(--border-strong)', borderRadius: 'var(--radius-md)', background: 'var(--bg-panel-raised)', marginBottom: 24 }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--text-muted)', marginBottom: 8 }}>Change prepared</div>
+            <div style={{ padding: '16px 20px', border: `1px solid ${verificationPassed ? 'var(--border-strong)' : '#eab308'}`, borderRadius: 'var(--radius-md)', background: 'var(--bg-panel-raised)', marginBottom: 24 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', color: verificationPassed ? 'var(--text-muted)' : '#eab308', marginBottom: 8 }}>
+                {verificationPassed ? 'Change prepared' : 'Fix prepared - verification incomplete'}
+              </div>
               <div style={{ fontSize: 13, color: 'var(--text-primary)', marginBottom: 8 }}>
                 {obs.diff.files.length} file(s) changed, +{obs.diff.additions} -{obs.diff.deletions}
               </div>
@@ -321,12 +327,17 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                   {obs.diff.files.map((f: string, i: number) => <div key={i}>{f}</div>)}
                 </div>
               )}
+              {!verificationPassed && (
+                <div style={{ fontSize: 11, color: '#eab308', marginBottom: 12 }}>
+                  Automatic publication requires all verification checks to pass. You can publish manually.
+                </div>
+              )}
               <button
                 className="btn btn-primary"
                 style={{ fontSize: 12 }}
                 onClick={() => onPublishPR?.(workflow.id)}
               >
-                Review &amp; Publish PR
+                {verificationPassed ? 'Publish Draft PR' : 'Publish Anyway'}
               </button>
             </div>
           )

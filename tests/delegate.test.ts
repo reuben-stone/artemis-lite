@@ -10,7 +10,7 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 import { execSync } from 'child_process'
 import { PlanSchema } from '../src/main/model/types'
-import { buildTaskPrompt, buildSystemPrompt, buildPRTitle, buildPRBody } from '../src/main/delegate/claude-code'
+import { buildTaskPrompt, buildSystemPrompt, buildPRTitle, buildPRBody, isPublicationReady } from '../src/main/delegate/claude-code'
 import { runDeterministicVerification } from '../src/main/delegate/verification'
 
 // ── Prompt construction ───────────────────────────────────────────
@@ -233,5 +233,57 @@ describe('Publication readiness', () => {
     const PROTECTED = new Set(['main', 'master', 'develop', 'production', 'release'])
     expect(PROTECTED.has('main')).toBe(true)
     expect(PROTECTED.has('artemis/5dac0cf5')).toBe(false)
+  })
+})
+
+describe('isPublicationReady', () => {
+  it('is ready when all non-skipped checks pass', () => {
+    const result = isPublicationReady([
+      { check: 'git_diff', passed: true, skipped: false },
+      { check: 'test', passed: true, skipped: false },
+      { check: 'lint', passed: true, skipped: true }
+    ])
+    expect(result.ready).toBe(true)
+  })
+
+  it('is not ready when a non-skipped check fails', () => {
+    const result = isPublicationReady([
+      { check: 'git_diff', passed: true, skipped: false },
+      { check: 'test', passed: false, skipped: false },
+      { check: 'typecheck', passed: true, skipped: true }
+    ])
+    expect(result.ready).toBe(false)
+    expect(result.reason).toContain('test')
+  })
+
+  it('is not ready when all checks are skipped', () => {
+    const result = isPublicationReady([
+      { check: 'test', passed: true, skipped: true },
+      { check: 'typecheck', passed: true, skipped: true },
+      { check: 'lint', passed: true, skipped: true }
+    ])
+    expect(result.ready).toBe(false)
+    expect(result.reason).toContain('No verification')
+  })
+
+  it('does not treat skipped as passed', () => {
+    const result = isPublicationReady([
+      { check: 'git_diff', passed: true, skipped: false },
+      { check: 'test', passed: true, skipped: true },
+      { check: 'typecheck', passed: true, skipped: true }
+    ])
+    // Only git_diff ran and passed - ready
+    expect(result.ready).toBe(true)
+    expect(result.detail.filter(d => d.status === 'skipped')).toHaveLength(2)
+  })
+
+  it('reports detail for each check', () => {
+    const result = isPublicationReady([
+      { check: 'git_diff', passed: true, skipped: false },
+      { check: 'test', passed: false, skipped: false }
+    ])
+    expect(result.detail).toHaveLength(2)
+    expect(result.detail[0]).toEqual({ check: 'git_diff', status: 'passed' })
+    expect(result.detail[1]).toEqual({ check: 'test', status: 'failed' })
   })
 })

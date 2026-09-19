@@ -1063,6 +1063,61 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     emit({ type: 'workflow.completed', workflowId: wf.id, usage })
     emit({ type: 'workflow.status', workflowId: wf.id, status: 'completed' })
 
+    // Auto-publish draft PR for delegated engineering with verified changes
+    if (isDelegatedEngineering) {
+      try {
+        const delegateStep = listSteps(wf.id).find(s => s.toolName === 'delegate_engineering' && s.status === 'completed')
+        if (delegateStep?.outputData) {
+          const delegateResult = JSON.parse(delegateStep.outputData)
+          const observed = delegateResult.observed
+          const ghId = deps.toolContext?.githubIdentity
+
+          if (observed?.diff?.files?.length > 0 && observed?.worktreePath && observed?.branchName && ghId) {
+            const { isPublicationReady } = await import('./delegate/claude-code')
+            const readiness = isPublicationReady(observed.checks ?? [])
+
+            trace(wf.id, 'publication.readiness', {
+              status: readiness.ready ? 'success' : 'failure',
+              metadata: { ready: readiness.ready, reason: readiness.reason, checks: readiness.detail }
+            })
+
+            if (readiness.ready) {
+              trace(wf.id, 'publication.started', { status: 'start' })
+              const { publishWorkflowPR } = await import('./delegate/claude-code')
+              const prResult = await publishWorkflowPR({
+                workflowId: wf.id,
+                worktreePath: observed.worktreePath,
+                branchName: observed.branchName,
+                baseCommit: observed.baseCommit,
+                goal,
+                engineOutput: delegateResult.engine?.output ?? '',
+                diff: observed.diff,
+                checks: (observed.checks ?? []).map((c: any) => ({ check: c.check, passed: c.passed, skipped: c.skipped })),
+                hasUncommittedChanges: observed.gitState?.hasUncommittedChanges ?? false,
+                githubOwner: ghId.owner,
+                githubRepo: ghId.repo
+              })
+              trace(wf.id, 'publication.completed', {
+                status: 'success',
+                metadata: { prNumber: prResult.prNumber, prUrl: prResult.prUrl, reconciled: prResult.reconciled }
+              })
+              emit({ type: 'model.text', workflowId: wf.id, text: `Draft PR #${prResult.prNumber} published` })
+
+              // Clean up worktree
+              try {
+                const { removeWorktree } = await import('./delegate/claude-code')
+                await removeWorktree(deps.workspacePath, observed.worktreePath, observed.branchName)
+              } catch { /* best effort */ }
+            } else {
+              emit({ type: 'model.text', workflowId: wf.id, text: `Fix prepared but not published: ${readiness.reason}` })
+            }
+          }
+        }
+      } catch (pubErr: any) {
+        trace(wf.id, 'publication.failed', { status: 'failure', errorCode: pubErr.message ?? String(pubErr) })
+      }
+    }
+
     return getWorkflow(wf.id)!
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err)

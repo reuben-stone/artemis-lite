@@ -371,9 +371,6 @@ function registerIpcHandlers(): void {
     const project = getActiveProject()
     if (!project?.githubOwner || !project?.githubRepo) throw new Error('Project has no GitHub identity')
 
-    const ghToken = getGitHubToken()
-    if (!ghToken) throw new Error('GitHub token not configured')
-
     const { publishWorkflowPR } = await import('./delegate/claude-code')
     const result = await publishWorkflowPR({
       workflowId,
@@ -386,8 +383,7 @@ function registerIpcHandlers(): void {
       checks: observed.checks.map((c: any) => ({ check: c.check, passed: c.passed, skipped: c.skipped })),
       hasUncommittedChanges: observed.gitState?.hasUncommittedChanges ?? false,
       githubOwner: project.githubOwner,
-      githubRepo: project.githubRepo,
-      githubToken: ghToken
+      githubRepo: project.githubRepo
     })
 
     // Clean up worktree after successful publication
@@ -484,13 +480,34 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IpcChannel.GITHUB_PROJECT_PRS, async (_event, raw: unknown) => {
     const { owner, repo } = raw as { owner: string; repo: string }
-    const token = getGitHubToken()
-    if (!token) return { pullRequests: [], error: 'GitHub not configured' }
     try {
-      const { GitHubClient } = require('./github')
-      const client = new GitHubClient(token)
-      const prs = await client.listPullRequests({ owner, repo }, { state: 'open' })
-      return { pullRequests: prs }
+      const { execFile: execFileCb } = require('child_process')
+      const { promisify } = require('util')
+      const execFileAsync = promisify(execFileCb)
+      const { GITHUB_TOKEN, GH_TOKEN, ...cleanEnv } = process.env
+      const env = { ...cleanEnv, PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin` }
+      const { stdout } = await execFileAsync('gh', [
+        'pr', 'list', '--repo', `${owner}/${repo}`, '--state', 'open',
+        '--json', 'number,title,headRefName,baseRefName,author,isDraft,state,labels',
+        '--limit', '30'
+      ], { timeout: 15_000, env })
+      const raw_prs = JSON.parse(stdout)
+      const pullRequests = raw_prs.map((pr: any) => ({
+        number: pr.number,
+        title: pr.title,
+        state: pr.state?.toLowerCase() === 'open' ? 'open' : 'closed',
+        body: null,
+        author: pr.author?.login ?? 'unknown',
+        labels: (pr.labels ?? []).map((l: any) => l.name),
+        headBranch: pr.headRefName,
+        baseBranch: pr.baseRefName,
+        draft: pr.isDraft ?? false,
+        mergeable: null,
+        createdAt: '',
+        updatedAt: '',
+        commentCount: 0
+      }))
+      return { pullRequests }
     } catch (err: any) {
       return { pullRequests: [], error: err.message }
     }

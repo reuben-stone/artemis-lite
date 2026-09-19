@@ -148,6 +148,10 @@ export async function createWorktree(
   const wtBase = worktreeDir(repoPath)
   const wtPath = join(wtBase, workflowIdShort)
 
+  // Clean up stale worktree/branch if they exist from a previous attempt
+  try { await execFile('git', ['worktree', 'remove', '--force', wtPath], { cwd: repoPath, timeout: 10_000 }) } catch { /* ok */ }
+  try { await execFile('git', ['branch', '-D', branchName], { cwd: repoPath, timeout: 5_000 }) } catch { /* ok */ }
+
   await execFile('git', ['worktree', 'add', '-b', branchName, wtPath, 'HEAD'], {
     cwd: repoPath,
     timeout: 30_000
@@ -472,6 +476,46 @@ export async function executeDelegatedEngineering(
   }
 }
 
+// ── Publication readiness ─────────────────────────────────────────
+
+export interface PublicationReadiness {
+  ready: boolean
+  reason: string
+  detail: { check: string; status: 'passed' | 'failed' | 'skipped' }[]
+}
+
+/**
+ * Determine whether a prepared change is ready for automatic draft PR publication.
+ *
+ * Policy: all non-skipped verification checks must pass.
+ * Skipped checks are NOT treated as passed - they are neutral.
+ * If ALL checks are skipped (no verification ran), publication is not ready.
+ */
+export function isPublicationReady(
+  checks: { check: string; passed: boolean; skipped: boolean }[]
+): PublicationReadiness {
+  const detail = checks.map(c => ({
+    check: c.check,
+    status: (c.skipped ? 'skipped' : c.passed ? 'passed' : 'failed') as 'passed' | 'failed' | 'skipped'
+  }))
+
+  const nonSkipped = checks.filter(c => !c.skipped)
+  const failed = nonSkipped.filter(c => !c.passed)
+
+  // No non-skipped checks ran - cannot verify, not ready
+  if (nonSkipped.length === 0) {
+    return { ready: false, reason: 'No verification checks ran', detail }
+  }
+
+  // Any non-skipped check failed - not ready
+  if (failed.length > 0) {
+    const failedNames = failed.map(c => c.check).join(', ')
+    return { ready: false, reason: `Verification failed: ${failedNames}`, detail }
+  }
+
+  return { ready: true, reason: 'All required checks passed', detail }
+}
+
 // ── PR Publication ────────────────────────────────────────────────
 
 export interface PublishPRResult {
@@ -552,7 +596,6 @@ export async function publishWorkflowPR(opts: {
   hasUncommittedChanges: boolean
   githubOwner: string
   githubRepo: string
-  githubToken: string
 }): Promise<PublishPRResult> {
   // Safety: never push protected branches
   const branchBase = opts.branchName.split('/').pop() ?? opts.branchName
@@ -560,62 +603,96 @@ export async function publishWorkflowPR(opts: {
     throw new Error(`Refusing to push protected branch: ${opts.branchName}`)
   }
 
-  const client = new (await import('../github')).GitHubClient(opts.githubToken)
-  const identity = { owner: opts.githubOwner, repo: opts.githubRepo }
+  const repo = `${opts.githubOwner}/${opts.githubRepo}`
 
-  // Reconcile: check if PR already exists for this branch
-  const existing = await client.findPRByBranch(identity, opts.branchName)
-  if (existing) {
-    const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: opts.worktreePath })
-    return {
-      prNumber: existing.number,
-      prUrl: `https://github.com/${opts.githubOwner}/${opts.githubRepo}/pull/${existing.number}`,
-      branch: opts.branchName,
-      baseBranch: existing.baseBranch,
-      commitSha: sha.trim(),
-      repository: `${opts.githubOwner}/${opts.githubRepo}`,
-      created: false,
-      reconciled: true
+  // Reconcile: check if PR already exists for this branch via gh CLI
+  try {
+    const { GITHUB_TOKEN: _gt, GH_TOKEN: _ght, ...cleanEnvRecon } = process.env
+    const env = { ...cleanEnvRecon, PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin` }
+    const { stdout: existingPRs } = await execFile('gh', [
+      'pr', 'list', '--repo', repo, '--head', opts.branchName, '--json', 'number,url,baseRefName', '--limit', '1'
+    ], { cwd: opts.worktreePath, timeout: 15_000, env })
+    const parsed = JSON.parse(existingPRs)
+    if (parsed.length > 0) {
+      const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: opts.worktreePath })
+      return {
+        prNumber: parsed[0].number,
+        prUrl: parsed[0].url,
+        branch: opts.branchName,
+        baseBranch: parsed[0].baseRefName,
+        commitSha: sha.trim(),
+        repository: repo,
+        created: false,
+        reconciled: true
+      }
     }
+  } catch { /* no existing PR, proceed */ }
+
+  // Verify worktree still exists
+  const { existsSync } = await import('fs')
+  if (!existsSync(opts.worktreePath)) {
+    throw new Error(`Worktree no longer exists at ${opts.worktreePath}. Re-run the delegation workflow.`)
   }
+
+  // Ensure PATH includes common binary locations for Electron.
+  // Remove GITHUB_TOKEN/GH_TOKEN so gh CLI uses its own keyring auth
+  // (Artemis-stored tokens may not have GraphQL access needed for gh pr create)
+  const { GITHUB_TOKEN, GH_TOKEN, ...cleanEnv } = process.env
+  const env = { ...cleanEnv, PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin` }
 
   // Commit uncommitted changes if needed
   if (opts.hasUncommittedChanges) {
-    await execFile('git', ['add', '-A'], { cwd: opts.worktreePath, timeout: 10_000 })
+    await execFile('git', ['add', '-A'], { cwd: opts.worktreePath, timeout: 10_000, env })
     await execFile('git', ['commit', '-m', `fix: ${opts.goal.slice(0, 100)}\n\nPrepared by Artemis workflow ${opts.workflowId.slice(0, 8)}`], {
-      cwd: opts.worktreePath, timeout: 10_000
+      cwd: opts.worktreePath, timeout: 10_000, env
     })
   }
 
   // Get commit SHA
-  const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: opts.worktreePath })
+  const { stdout: sha } = await execFile('git', ['rev-parse', 'HEAD'], { cwd: opts.worktreePath, env })
   const commitSha = sha.trim()
 
   // Push branch
   await execFile('git', ['push', '-u', 'origin', opts.branchName], {
-    cwd: opts.worktreePath, timeout: 30_000
+    cwd: opts.worktreePath, timeout: 30_000, env
   })
 
-  // Create PR
+  // Create PR via gh CLI (uses system gh auth, not Artemis-stored token)
   const title = buildPRTitle(opts.goal, opts.diff.files)
   const body = buildPRBody(opts.goal, opts.engineOutput, opts.diff, opts.checks, opts.workflowId)
 
-  const pr = await client.createPullRequest(identity, {
-    title,
-    body,
-    head: opts.branchName,
-    base: 'main',
-    draft: true
-  })
+  // Write body to temp file to avoid shell escaping issues
+  const { writeFileSync, unlinkSync } = await import('fs')
+  const bodyFile = join(opts.worktreePath, '.artemis-pr-body.md')
+  writeFileSync(bodyFile, body, 'utf-8')
 
-  return {
-    prNumber: pr.number,
-    prUrl: `https://github.com/${opts.githubOwner}/${opts.githubRepo}/pull/${pr.number}`,
-    branch: opts.branchName,
-    baseBranch: 'main',
-    commitSha,
-    repository: `${opts.githubOwner}/${opts.githubRepo}`,
-    created: true,
-    reconciled: false
+  try {
+    const { stdout: prUrl } = await execFile('gh', [
+      'pr', 'create',
+      '--repo', repo,
+      '--head', opts.branchName,
+      '--base', 'main',
+      '--title', title,
+      '--body-file', bodyFile,
+      '--draft'
+    ], { cwd: opts.worktreePath, timeout: 30_000, env })
+
+    // gh pr create outputs the PR URL on stdout
+    const url = prUrl.trim()
+    const prNumberMatch = url.match(/\/pull\/(\d+)/)
+    const prNumber = prNumberMatch ? parseInt(prNumberMatch[1], 10) : 0
+
+    return {
+      prNumber,
+      prUrl: url,
+      branch: opts.branchName,
+      baseBranch: 'main',
+      commitSha,
+      repository: repo,
+      created: true,
+      reconciled: false
+    }
+  } finally {
+    try { unlinkSync(bodyFile) } catch { /* ok */ }
   }
 }
