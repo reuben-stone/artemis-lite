@@ -91,7 +91,7 @@ export function App() {
   const [showNewDialog, setShowNewDialog] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showReview, setShowReview] = useState(false)
-  const [inspectorWidth, setInspectorWidth] = useState(360)
+  const [inspectorWidth, setInspectorWidth] = useState(380)
   const [lastEvent, setLastEvent] = useState<string | null>(null)
   const [traceEvents, setTraceEvents] = useState<TraceEvent[]>([])
   const [steps, setSteps] = useState<WorkflowStep[]>([])
@@ -374,16 +374,7 @@ export function App() {
                 document.addEventListener('mouseup', onUp)
               }}
             />
-            <aside className="panel panel-right" style={{ width: inspectorWidth, position: 'relative' }}>
-              <button
-                onClick={() => setShowInspector(false)}
-                style={{
-                  position: 'absolute', top: 8, right: 8, zIndex: 10,
-                  background: 'none', border: 'none', color: 'var(--text-muted)',
-                  cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4
-                }}
-                title="Close inspector"
-              >&times;</button>
+            <aside className="panel panel-right" style={{ width: inspectorWidth }}>
               <Inspector
                 workflow={activeWorkflow}
                 tab={inspectorTab}
