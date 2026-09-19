@@ -66,15 +66,45 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
             const prUrl = proj?.githubOwner && proj?.githubRepo
               ? `https://github.com/${proj.githubOwner}/${proj.githubRepo}/pull/${pr.number}`
               : null
-            // Find matching workflow for this PR
-            const wf = data.workflows.find(w => w.goal?.toLowerCase().includes(pr.project.toLowerCase()))
+            // Find matching workflow with delegation details
+            const wf = data.workflows.find((w: any) =>
+              w.goal?.toLowerCase().includes(pr.project.toLowerCase()) ||
+              w.delegateOutput?.observed?.branchName === pr.headBranch
+            )
+            const delegateOutput = (wf as any)?.delegateOutput
+            const engineOutput = delegateOutput?.engine?.output ?? ''
+            const observed = delegateOutput?.observed
+
+            // Extract a concise finding from the engine output
+            let finding = ''
+            if (engineOutput) {
+              const cleaned = engineOutput
+                .replace(/^Done\.?\s*(Here'?s?\s*(a\s+)?summary[^:]*:?\s*)?/i, '')
+                .replace(/^---+\s*/m, '')
+                .trim()
+              // Take first meaningful sentence/line
+              const firstLine = cleaned.split('\n').find((l: string) => l.trim().length > 20)
+              if (firstLine) finding = firstLine.trim().slice(0, 150)
+            }
+
+            const issueTitle = pr.title.replace(/^fix\(\w+\):\s*/i, '')
 
             return (
               <div key={`${pr.project}-${pr.number}`} className="review-card" style={{ padding: '16px 20px' }}>
                 <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{pr.project}</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
-                  {pr.title.replace(/^fix\(\w+\):\s*/i, '')}
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 4 }}>
+                  {issueTitle}
                 </div>
+                {finding && (
+                  <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, lineHeight: 1.5 }}>
+                    {finding}
+                  </div>
+                )}
+                {observed?.diff && (
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+                    {observed.diff.files?.length} file(s) changed, +{observed.diff.additions} -{observed.diff.deletions}
+                  </div>
+                )}
                 <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 16px', fontSize: 12, marginBottom: 16 }}>
                   <span style={{ color: 'var(--text-muted)' }}>Signal</span>
                   <span style={{ color: 'var(--text-secondary)' }}>Sentry</span>

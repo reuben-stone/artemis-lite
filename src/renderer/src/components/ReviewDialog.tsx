@@ -155,14 +155,24 @@ export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, onIn
           }
         }
 
-        // Workflows
+        // Workflows - include delegation details for Morning Review cards
         const wfList = await window.artemis.workflows.list()
         const wfResults: any[] = []
         for (const wf of wfList.slice(0, 10)) {
           if (wf.status === 'completed' || wf.status === 'failed') {
             try {
               const r = await window.artemis.workflows.result({ workflowId: wf.id })
-              if (r.result) wfResults.push({ ...wf, result: r.result })
+              if (r.result) {
+                let delegateOutput: any = null
+                try {
+                  const detail = await window.artemis.workflows.get({ workflowId: wf.id })
+                  const delegateStep = (detail.steps ?? []).find((s: any) => s.toolName === 'delegate_engineering' && s.status === 'completed')
+                  if (delegateStep?.outputData) {
+                    delegateOutput = JSON.parse(delegateStep.outputData)
+                  }
+                } catch { /* ok */ }
+                wfResults.push({ ...wf, result: r.result, delegateOutput })
+              }
             } catch { /* ok */ }
           }
         }
