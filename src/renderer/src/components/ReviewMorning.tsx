@@ -66,10 +66,11 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
             const prUrl = proj?.githubOwner && proj?.githubRepo
               ? `https://github.com/${proj.githubOwner}/${proj.githubRepo}/pull/${pr.number}`
               : null
-            // Find matching workflow with delegation details
+            // Find matching workflow with delegation details - match by branch or project name in goal
             const wf = data.workflows.find((w: any) =>
+              (w as any).delegateOutput?.observed?.branchName === pr.headBranch ||
               w.goal?.toLowerCase().includes(pr.project.toLowerCase()) ||
-              w.delegateOutput?.observed?.branchName === pr.headBranch
+              w.goal?.toLowerCase().includes(pr.title.slice(0, 30).toLowerCase())
             )
             const delegateOutput = (wf as any)?.delegateOutput
             const engineOutput = delegateOutput?.engine?.output ?? ''
