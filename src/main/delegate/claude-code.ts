@@ -76,10 +76,14 @@ export class ClaudeCodeEngine implements DelegateEngine {
       const chunks: Buffer[] = []
       const errChunks: Buffer[] = []
 
-      const proc = spawn('claude', args, {
+      const { GITHUB_TOKEN, GH_TOKEN, ...cleanSpawnEnv } = process.env
+      const spawnEnv = { ...cleanSpawnEnv, PATH: `${process.env.PATH}:/usr/local/bin:/opt/homebrew/bin` }
+
+      const proc = spawn('/opt/homebrew/bin/claude', args, {
         cwd: opts.worktreePath,
         timeout: opts.timeoutMs,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: spawnEnv
       })
 
       proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk))
@@ -172,16 +176,16 @@ export async function removeWorktree(repoPath: string, worktreePath: string, bra
 // ── Task prompt construction ──────────────────────────────────────
 
 export function buildSystemPrompt(): string {
-  return `You are fixing a production issue in this repository.
+  return `You are performing engineering work in this repository.
+
+You MUST write changes to disk using the Write or Edit tools. Do not use artifacts or previews.
 
 Constraints:
-- Fix ONLY the identified issue. Do not refactor unrelated code.
-- Keep changes minimal and focused.
-- Ensure the fix handles edge cases visible in the error.
-- Do not modify test infrastructure or CI configuration.
-- Do not add new dependencies unless essential to the fix.
+- Keep changes focused on the stated goal.
+- Do not refactor unrelated code.
+- Do not add new dependencies unless essential.
 - Do not push, deploy, or create pull requests.
-- Commit your changes with a clear message referencing the issue.
+- Commit your changes with a clear message describing what was done.
 - After making changes, run the project's test suite if one exists.`
 }
 
