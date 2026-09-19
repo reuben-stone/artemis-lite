@@ -14,13 +14,27 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
   const dateStr = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
   const succeededWf = data.workflows.filter(w => w.result?.status === 'succeeded')
-  const failedWf = data.workflows.filter(w => w.result?.status === 'failed')
 
+  // PRs from Artemis branches (our work)
+  const artemisPrs = data.prs.filter(pr => pr.headBranch.startsWith('artemis/'))
+
+  // Issues that have a matching PR (resolved)
+  const resolvedIssues = data.issues.filter(issue =>
+    data.prs.some(pr => pr.headBranch.startsWith('artemis/') && pr.title.toLowerCase().includes(issue.projectLabel.toLowerCase()))
+  )
+  // Issues without a PR or completed workflow (needs attention)
+  const unresolvedIssues = data.issues.filter(issue => {
+    const hasPr = data.prs.some(pr => pr.headBranch.startsWith('artemis/') && pr.title.toLowerCase().includes(issue.projectLabel.toLowerCase()))
+    const hasWf = data.workflows.some(w => w.goal?.includes(issue.title.slice(0, 40)) && w.result?.status === 'succeeded')
+    return !hasPr && !hasWf
+  })
+
+  // Summary counts
   const parts: string[] = []
   parts.push(`${data.portfolioRows.length} projects`)
-  if (data.issues.length > 0) parts.push(`${data.issues.length} issue${data.issues.length !== 1 ? 's' : ''}`)
-  if (data.prs.length > 0) parts.push(`${data.prs.length} PR${data.prs.length !== 1 ? 's' : ''} open`)
-  if (succeededWf.length > 0) parts.push(`${succeededWf.length} completed`)
+  if (data.issues.length > 0) parts.push(`${data.issues.length} Sentry issue${data.issues.length !== 1 ? 's' : ''}`)
+  if (artemisPrs.length > 0) parts.push(`${artemisPrs.length} fix${artemisPrs.length !== 1 ? 'es' : ''} prepared`)
+  if (unresolvedIssues.length > 0) parts.push(`${unresolvedIssues.length} needs attention`)
 
   return (
     <div>
@@ -30,52 +44,41 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
         {parts.map((p, i) => <span key={i}>{p}</span>)}
       </div>
 
-      {/* Issues */}
-      {data.issues.length > 0 && (
+      {/* Ready for Review - PRs from Artemis with structured cards */}
+      {artemisPrs.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-            <div className="review-section-label" style={{ color: '#eab308' }}>Issues</div>
-            <button className="review-link" onClick={() => onSwitchTab('issues')}>View all {data.issues.length} &rarr;</button>
+            <div className="review-section-label" style={{ color: '#22c55e' }}>Ready for Review</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{artemisPrs.length}</div>
           </div>
-          {data.issues.slice(0, 3).map(issue => {
-            // Check if a PR exists for this issue (Artemis branch matching issue title)
-            const matchingPr = data.prs.find(pr =>
-              pr.headBranch.startsWith('artemis/') &&
-              pr.title.toLowerCase().includes(issue.projectLabel.toLowerCase())
-            )
-            // Check if a workflow investigated this
-            const matchingWf = data.workflows.find(w =>
-              w.goal?.includes(issue.title.slice(0, 40)) && w.result?.status === 'succeeded'
-            )
+          {artemisPrs.map(pr => {
+            const proj = data.projects.find((p: any) => p.name === pr.project)
+            const prUrl = proj?.githubOwner && proj?.githubRepo
+              ? `https://github.com/${proj.githubOwner}/${proj.githubRepo}/pull/${pr.number}`
+              : null
+            // Find matching workflow for this PR
+            const wf = data.workflows.find(w => w.goal?.toLowerCase().includes(pr.project.toLowerCase()))
 
             return (
-              <div key={issue.id} className="review-card">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{issue.projectLabel}</div>
-                    {issue.errorType && <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--status-danger)', marginBottom: 2 }}>{issue.errorType}</div>}
-                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{issue.message.length > 80 ? issue.message.slice(0, 80) + '...' : issue.message}</div>
-                  </div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{issue.count} events</div>
+              <div key={`${pr.project}-${pr.number}`} className="review-card" style={{ padding: '16px 20px' }}>
+                <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{pr.project}</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                  {pr.title.replace(/^fix\(\w+\):\s*/i, '')}
                 </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
-                  {matchingPr ? (
-                    <>
-                      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#22c55e' }}>PR #{matchingPr.number} open</span>
-                      <button className="review-action" onClick={() => onSwitchTab('prs')}>Review PR &rarr;</button>
-                    </>
-                  ) : matchingWf ? (
-                    <>
-                      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)' }}>Investigated</span>
-                      <button className="review-action" onClick={() => { onSelectWorkflow(matchingWf.id); onClose() }}>View result &rarr;</button>
-                    </>
-                  ) : (
-                    <>
-                      <button className="review-action" onClick={() => onSwitchTab('issues')}>View issue &rarr;</button>
-                      <button className="review-action-primary" onClick={() => {
-                        onInvestigate(issue.projectId, `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`)
-                      }}>Investigate</button>
-                    </>
+                <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 16px', fontSize: 12, marginBottom: 16 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Signal</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>Sentry</span>
+                  <span style={{ color: 'var(--text-muted)' }}>Branch</span>
+                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-secondary)' }}>{pr.headBranch}</span>
+                  <span style={{ color: 'var(--text-muted)' }}>PR</span>
+                  <span style={{ color: '#22c55e' }}>#{pr.number} {pr.draft ? '(draft)' : 'open'}</span>
+                </div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {wf && (
+                    <button className="review-action" onClick={() => { onSelectWorkflow(wf.id); onClose() }}>Inspect workflow</button>
+                  )}
+                  {prUrl && (
+                    <a href={prUrl} target="_blank" rel="noopener" className="review-action-primary" style={{ textDecoration: 'none', display: 'inline-block' }}>Review changes</a>
                   )}
                 </div>
               </div>
@@ -84,50 +87,49 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
         </div>
       )}
 
-      {/* PR Review */}
-      {data.prs.length > 0 && (
+      {/* Needs Attention - unresolved issues */}
+      {unresolvedIssues.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-            <div className="review-section-label" style={{ color: 'var(--accent)' }}>PR Review</div>
-            <button className="review-link" onClick={() => onSwitchTab('prs')}>{data.prs.length} awaiting &rarr;</button>
+            <div className="review-section-label" style={{ color: '#eab308' }}>Needs Attention</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{unresolvedIssues.length}</div>
           </div>
-          {data.prs.slice(0, 2).map(pr => (
-            <div key={`${pr.project}-${pr.number}`} className="review-card">
-              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{pr.title}</div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{pr.project} &middot; #{pr.number} &middot; {pr.author}</div>
+          {unresolvedIssues.slice(0, 3).map(issue => (
+            <div key={issue.id} className="review-card" style={{ padding: '16px 20px' }}>
+              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{issue.projectLabel}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                {issue.message.length > 100 ? issue.message.slice(0, 100) + '...' : issue.message}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 16px', fontSize: 12, marginBottom: 12 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Signal</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Sentry - {issue.count} events</span>
+                <span style={{ color: 'var(--text-muted)' }}>Investigation</span>
+                <span style={{ color: '#eab308' }}>Not yet investigated</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button className="review-action" onClick={() => onSwitchTab('issues')}>View issue</button>
+                <button className="review-action-primary" onClick={() => {
+                  onInvestigate(issue.projectId, `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`)
+                }}>Investigate</button>
+              </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Completed workflows */}
-      {succeededWf.length > 0 && (
+      {/* Other open PRs (non-Artemis) */}
+      {data.prs.filter(pr => !pr.headBranch.startsWith('artemis/')).length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-            <div className="review-section-label" style={{ color: '#22c55e' }}>Completed</div>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{succeededWf.length}</div>
+            <div className="review-section-label" style={{ color: 'var(--accent)' }}>Other PRs</div>
+            <button className="review-link" onClick={() => onSwitchTab('prs')}>View all &rarr;</button>
           </div>
-          {succeededWf.slice(0, 3).map((wf: any) => {
-            // Check if this workflow produced a PR
-            const matchingPr = data.prs.find(pr =>
-              pr.headBranch.startsWith('artemis/') &&
-              wf.goal?.toLowerCase().includes(pr.project?.toLowerCase())
-            )
-            return (
-              <div key={wf.id} className="review-card">
-                <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{wf.goal}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginBottom: 8, lineHeight: 1.4 }}>
-                  {wf.result.summary.length > 100 ? wf.result.summary.slice(0, 100) + '...' : wf.result.summary}
-                </div>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <button className="review-action" onClick={() => { onSelectWorkflow(wf.id); onClose() }}>Inspect workflow &rarr;</button>
-                  {matchingPr && (
-                    <button className="review-action" onClick={() => onSwitchTab('prs')}>PR #{matchingPr.number} &rarr;</button>
-                  )}
-                </div>
-              </div>
-            )
-          })}
+          {data.prs.filter(pr => !pr.headBranch.startsWith('artemis/')).slice(0, 2).map(pr => (
+            <div key={`${pr.project}-${pr.number}`} className="review-card">
+              <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{pr.title}</div>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{pr.project} &middot; #{pr.number} &middot; {pr.author}</div>
+            </div>
+          ))}
         </div>
       )}
 

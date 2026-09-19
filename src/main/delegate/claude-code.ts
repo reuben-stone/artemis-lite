@@ -549,35 +549,61 @@ export function buildPRBody(
 ): string {
   const parts: string[] = []
 
-  parts.push('## Problem')
-  parts.push(goal)
+  // Warning banner if checks failed
+  const hasFailures = checks.some(c => !c.skipped && !c.passed)
+  if (hasFailures) {
+    parts.push('> :warning: **Checks failed** - opened as a draft. Review carefully before marking ready / merging.')
+    parts.push('')
+  }
+
+  parts.push('**Automated by Artemis specialist execution.**')
   parts.push('')
 
+  // Task
+  parts.push('**Task:** ' + goal)
+  parts.push('')
+
+  // Root cause / what was found
   if (engineOutput) {
-    parts.push('## Root cause')
-    // Take the first meaningful paragraph from the engine output
-    const summary = engineOutput.split('\n\n').slice(0, 2).join('\n\n').slice(0, 800)
-    parts.push(summary)
-    parts.push('')
+    // Strip common boilerplate prefixes from Claude Code output
+    let cleaned = engineOutput
+      .replace(/^Done\.?\s*(Here'?s?\s*(a\s+)?summary[^:]*:?\s*)?/i, '')
+      .replace(/^---+\s*/m, '')
+      .trim()
+    if (cleaned) {
+      parts.push('**What was found:**')
+      // Take meaningful content, cap at 1000 chars
+      const summary = cleaned.slice(0, 1000)
+      parts.push(summary)
+      parts.push('')
+    }
   }
 
-  parts.push('## Change')
+  // What changed
+  parts.push('**What changed:**')
   parts.push(`${diff.files.length} file(s) changed, +${diff.additions} -${diff.deletions}`)
+  parts.push('')
   if (diff.files.length <= 10) {
-    parts.push('')
     parts.push(diff.files.map(f => `- \`${f}\``).join('\n'))
+    parts.push('')
   }
-  parts.push('')
 
-  parts.push('## Verification')
+  // Checks
+  parts.push('**Checks:**')
+  parts.push('')
   for (const c of checks) {
+    if (c.check === 'git_diff') continue // Observational, not a pass/fail check
+    const icon = c.skipped ? ':white_circle:' : c.passed ? ':white_check_mark:' : ':x:'
     const status = c.skipped ? 'skipped' : c.passed ? 'passed' : 'failed'
-    parts.push(`- ${c.check}: ${status}`)
+    parts.push(`- \`${c.check}\` ${icon} ${status}`)
   }
   parts.push('')
 
+  // Footer
   parts.push('---')
-  parts.push(`Prepared by Artemis workflow \`${workflowId.slice(0, 8)}\``)
+  parts.push(`*Review before merging* - opened on branch \`artemis/${workflowId.slice(0, 8)}\`, base \`main\`.`)
+  parts.push('')
+  parts.push(`Artemis workflow \`${workflowId.slice(0, 8)}\``)
 
   return parts.join('\n')
 }
