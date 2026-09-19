@@ -37,24 +37,50 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
             <div className="review-section-label" style={{ color: '#eab308' }}>Issues</div>
             <button className="review-link" onClick={() => onSwitchTab('issues')}>View all {data.issues.length} &rarr;</button>
           </div>
-          {data.issues.slice(0, 3).map(issue => (
-            <div key={issue.id} className="review-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{issue.projectLabel}</div>
-                  {issue.errorType && <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--status-danger)', marginBottom: 2 }}>{issue.errorType}</div>}
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{issue.message.length > 80 ? issue.message.slice(0, 80) + '...' : issue.message}</div>
+          {data.issues.slice(0, 3).map(issue => {
+            // Check if a PR exists for this issue (Artemis branch matching issue title)
+            const matchingPr = data.prs.find(pr =>
+              pr.headBranch.startsWith('artemis/') &&
+              pr.title.toLowerCase().includes(issue.projectLabel.toLowerCase())
+            )
+            // Check if a workflow investigated this
+            const matchingWf = data.workflows.find(w =>
+              w.goal?.includes(issue.title.slice(0, 40)) && w.result?.status === 'succeeded'
+            )
+
+            return (
+              <div key={issue.id} className="review-card">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 2 }}>{issue.projectLabel}</div>
+                    {issue.errorType && <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--status-danger)', marginBottom: 2 }}>{issue.errorType}</div>}
+                    <div style={{ fontSize: 11, color: 'var(--text-secondary)', lineHeight: 1.4 }}>{issue.message.length > 80 ? issue.message.slice(0, 80) + '...' : issue.message}</div>
+                  </div>
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{issue.count} events</div>
                 </div>
-                <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>{issue.count} events</div>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
+                  {matchingPr ? (
+                    <>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: '#22c55e' }}>PR #{matchingPr.number} open</span>
+                      <button className="review-action" onClick={() => onSwitchTab('prs')}>Review PR &rarr;</button>
+                    </>
+                  ) : matchingWf ? (
+                    <>
+                      <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--accent)' }}>Investigated</span>
+                      <button className="review-action" onClick={() => { onSelectWorkflow(matchingWf.id); onClose() }}>View result &rarr;</button>
+                    </>
+                  ) : (
+                    <>
+                      <button className="review-action" onClick={() => onSwitchTab('issues')}>View issue &rarr;</button>
+                      <button className="review-action-primary" onClick={() => {
+                        onInvestigate(issue.projectId, `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`)
+                      }}>Investigate</button>
+                    </>
+                  )}
+                </div>
               </div>
-              <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-                <button className="review-action" onClick={() => onSwitchTab('issues')}>View issue &rarr;</button>
-                <button className="review-action-primary" onClick={() => {
-                  onInvestigate(issue.projectId, `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`)
-                }}>Investigate</button>
-              </div>
-            </div>
-          ))}
+            )
+          })}
         </div>
       )}
 

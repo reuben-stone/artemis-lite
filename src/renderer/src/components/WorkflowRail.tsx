@@ -105,20 +105,29 @@ export function WorkflowRail({
           <div style={{ padding: '0 8px 8px', fontSize: 11, color: 'var(--text-muted)' }}>No open PRs</div>
         ) : !prCollapsed && (
           <div style={{ padding: '0 8px 8px' }}>
-            {prs.map(pr => (
-              <div
-                key={`${pr.project}-${pr.number}`}
-                className="project-item"
-                style={{ cursor: 'default', padding: '6px 8px' }}
-              >
-                <div style={{ fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {pr.title}
-                </div>
-                <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                  {pr.project} &middot; #{pr.number}{pr.draft ? ' &middot; draft' : ''}
-                </div>
-              </div>
-            ))}
+            {prs.map(pr => {
+              const proj = projects.find(p => p.name === pr.project)
+              const prUrl = proj?.githubOwner && proj?.githubRepo
+                ? `https://github.com/${proj.githubOwner}/${proj.githubRepo}/pull/${pr.number}`
+                : null
+              return (
+                <a
+                  key={`${pr.project}-${pr.number}`}
+                  className="project-item"
+                  href={prUrl ?? '#'}
+                  target={prUrl ? '_blank' : undefined}
+                  rel="noopener"
+                  style={{ cursor: 'pointer', padding: '6px 8px', display: 'block', textDecoration: 'none', color: 'inherit' }}
+                >
+                  <div style={{ fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {pr.title}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                    {pr.project} &middot; #{pr.number}{pr.draft ? ' &middot; draft' : ''}
+                  </div>
+                </a>
+              )
+            })}
           </div>
         )}
       </div>
