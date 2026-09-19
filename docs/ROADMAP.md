@@ -928,6 +928,44 @@ engine as manually created work.
 
 ------------------------------------------------------------------------
 
+# 17.5. Post-MVP - Worker Thread Delegation
+
+## Objective
+
+Move Claude Code delegation execution off the Electron main thread so
+the UI remains responsive during specialist execution.
+
+## Problem
+
+Currently `executeDelegatedEngineering` runs the Claude Code `spawn`
+on the main Electron process. This blocks the UI for 3-5 minutes
+during specialist execution - the cursor shows a loading spinner and
+the app is unresponsive.
+
+## Implementation
+
+- Use Node.js `worker_threads` or Electron `utilityProcess` to run
+  the delegation in a background thread.
+- Main thread sends the delegation task to the worker.
+- Worker spawns Claude Code, collects output, runs verification.
+- Worker reports progress events back to main thread for UI updates.
+- Main thread remains responsive for approvals, inspection, etc.
+
+## Requirements
+
+- Delegation state must be persisted before the worker starts.
+- Worker crash must not lose workflow state.
+- Progress events (engine started, engine complete, verification)
+  must reach the renderer for live UI updates.
+- Multiple concurrent delegations should be possible.
+
+## Exit criteria
+
+The Electron UI remains interactive while Claude Code executes in
+a background thread. Delegation progress is visible in real time.
+
+------------------------------------------------------------------------
+
 # 18. Phase 15 - Event-Driven Repository Monitoring
 
 ## Objective
