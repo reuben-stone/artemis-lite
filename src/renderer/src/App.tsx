@@ -87,6 +87,7 @@ export function App() {
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('trace')
+  const [showInspector, setShowInspector] = useState(true)
   const [showNewDialog, setShowNewDialog] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showReview, setShowReview] = useState(false)
@@ -293,7 +294,7 @@ export function App() {
 
   return (
     <div className="app-root">
-      <TopBar workflow={activeWorkflow} usage={usage} busy={busy} project={activeProject} onOpenSettings={() => setShowSettings(true)} onOpenMorningReview={() => setShowReview(true)} />
+      <TopBar workflow={activeWorkflow} usage={usage} busy={busy} project={activeProject} onOpenSettings={() => setShowSettings(true)} onOpenMorningReview={() => setShowReview(true)} onToggleInspector={() => setShowInspector(!showInspector)} showInspector={showInspector} />
 
       <div className="app-body">
         <aside className="panel panel-left">
@@ -353,35 +354,48 @@ export function App() {
           />
         </main>
 
-        <div
-          className="panel-resize-handle"
-          onMouseDown={e => {
-            e.preventDefault()
-            const startX = e.clientX
-            const startW = inspectorWidth
-            const onMove = (ev: MouseEvent) => {
-              const delta = startX - ev.clientX
-              setInspectorWidth(Math.max(280, Math.min(700, startW + delta)))
-            }
-            const onUp = () => {
-              document.removeEventListener('mousemove', onMove)
-              document.removeEventListener('mouseup', onUp)
-            }
-            document.addEventListener('mousemove', onMove)
-            document.addEventListener('mouseup', onUp)
-          }}
-        />
-        <aside className="panel panel-right" style={{ width: inspectorWidth }}>
-          <Inspector
-            workflow={activeWorkflow}
-            tab={inspectorTab}
-            onTabChange={setInspectorTab}
-            traceEvents={traceEvents}
-            steps={steps}
-            usage={usage}
-            contextPackets={contextPackets}
-          />
-        </aside>
+        {showInspector && (
+          <>
+            <div
+              className="panel-resize-handle"
+              onMouseDown={e => {
+                e.preventDefault()
+                const startX = e.clientX
+                const startW = inspectorWidth
+                const onMove = (ev: MouseEvent) => {
+                  const delta = startX - ev.clientX
+                  setInspectorWidth(Math.max(280, Math.min(700, startW + delta)))
+                }
+                const onUp = () => {
+                  document.removeEventListener('mousemove', onMove)
+                  document.removeEventListener('mouseup', onUp)
+                }
+                document.addEventListener('mousemove', onMove)
+                document.addEventListener('mouseup', onUp)
+              }}
+            />
+            <aside className="panel panel-right" style={{ width: inspectorWidth, position: 'relative' }}>
+              <button
+                onClick={() => setShowInspector(false)}
+                style={{
+                  position: 'absolute', top: 8, right: 8, zIndex: 10,
+                  background: 'none', border: 'none', color: 'var(--text-muted)',
+                  cursor: 'pointer', fontSize: 16, lineHeight: 1, padding: 4
+                }}
+                title="Close inspector"
+              >&times;</button>
+              <Inspector
+                workflow={activeWorkflow}
+                tab={inspectorTab}
+                onTabChange={setInspectorTab}
+                traceEvents={traceEvents}
+                steps={steps}
+                usage={usage}
+                contextPackets={contextPackets}
+              />
+            </aside>
+          </>
+        )}
       </div>
 
       <BottomStrip message={lastEvent} />

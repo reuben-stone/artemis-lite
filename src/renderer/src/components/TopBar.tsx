@@ -7,6 +7,8 @@ interface Props {
   project: ProjectInfo | null
   onOpenSettings: () => void
   onOpenMorningReview: () => void
+  onToggleInspector?: () => void
+  showInspector?: boolean
 }
 
 function formatStatus(status: string): string {
@@ -29,7 +31,7 @@ function formatCost(c: number): string {
   return `$${c.toFixed(3)}`
 }
 
-export function TopBar({ workflow, usage, busy, project, onOpenSettings, onOpenMorningReview }: Props) {
+export function TopBar({ workflow, usage, busy, project, onOpenSettings, onOpenMorningReview, onToggleInspector, showInspector }: Props) {
   const totalTokens = usage ? usage.inputTokens + usage.outputTokens : 0
 
   return (
@@ -70,6 +72,16 @@ export function TopBar({ workflow, usage, busy, project, onOpenSettings, onOpenM
         >
           Settings
         </button>
+        {!showInspector && onToggleInspector && (
+          <button
+            className="btn btn-ghost"
+            style={{ fontSize: 13, padding: '2px 6px', marginRight: 8 }}
+            onClick={onToggleInspector}
+            title="Show inspector"
+          >
+            Inspector
+          </button>
+        )}
         {workflow && usage ? (
           <>
             <span className="topbar-metric">{formatCost(usage.estimatedCost)}</span>
