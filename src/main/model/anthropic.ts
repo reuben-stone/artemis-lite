@@ -124,9 +124,9 @@ Rules:
 - Return ONLY the JSON object, no markdown fences or explanation.
 
 Execution modes:
-- For goals that require investigating or fixing code (error investigation, bug fixes, implementing changes): use preferredAction "delegate_engineering" with a SINGLE step. Set the objective to a clear description of what needs to be investigated or fixed. The system will delegate to a specialised coding agent that can search, read and modify the repository.
-- For goals with known concrete actions that use only the available tools (create branch, list issues, run tests): use the normal multi-step plan.
-- Prefer "delegate_engineering" for any goal that requires understanding repository code. The coding agent is better at repository exploration than the bounded tool set.`)
+- For ANY goal that involves reading, searching, investigating, modifying or creating repository code: use preferredAction "delegate_engineering" with a SINGLE step. This includes bug fixes, error investigation, implementing features, writing files, preparing PRs, or any task that requires understanding repository code. The system will delegate to a specialised coding agent.
+- For goals that ONLY use non-repository tools (list GitHub issues, run tests, check status): use the normal multi-step plan.
+- When in doubt, use "delegate_engineering". The coding agent handles repository work far more effectively than the bounded tool set.`)
 
   // Build user message with context
   const userParts: string[] = []
