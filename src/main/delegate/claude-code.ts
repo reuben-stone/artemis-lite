@@ -312,13 +312,22 @@ export async function executeDelegatedEngineering(
   const planStep = plan.steps[0]
   const branchName = `artemis/${wf.id.slice(0, 8)}`
 
-  // Create step for the delegation
-  const step = createStep(wf.id, 'tool', 'delegate_engineering', {
-    planStepId: planStep.id,
-    objective: planStep.objective,
-    engine: engine.name,
-    config
-  })
+  // Reuse existing delegation step if resuming, otherwise create new
+  const { listSteps } = await import('../store')
+  const existingSteps = listSteps(wf.id)
+  let step = existingSteps.find(s =>
+    s.toolName === 'delegate_engineering' &&
+    s.status !== 'failed' &&
+    s.inputData?.includes(planStep.id)
+  )
+  if (!step) {
+    step = createStep(wf.id, 'tool', 'delegate_engineering', {
+      planStepId: planStep.id,
+      objective: planStep.objective,
+      engine: engine.name,
+      config
+    })
+  }
 
   // Approval gate - human must consent before we spawn a coding agent
   const approved = await requestApproval(
