@@ -116,7 +116,7 @@ Encrypted secrets (OS keychain via safeStorage)
 npm run dev          # Electron dev server
 npm run build        # Production build
 npm run typecheck    # TypeScript check (both configs)
-npm test             # Vitest (215 tests across 14 files)
+npm test             # Vitest (626 tests across 18 files)
 ```
 
 ## Documentation
