@@ -333,16 +333,28 @@ export async function executeDelegatedEngineering(
     })
   }
 
-  // Approval gate - human must consent before we spawn a coding agent
-  const approved = await requestApproval(
-    wf, step,
-    `Delegate engineering to ${engine.name}: ${planStep.objective}`,
-    deps.emit, deps.waitForApproval
-  )
+  // Approval gate - human must consent before we spawn a coding agent.
+  // Signal-triggered workflows (auto_investigate) skip this gate because the
+  // automation policy is the prior consent. The human reviews the result via
+  // Morning Review / PR review, not by approving each delegation.
+  const isSignalTriggered = !!wf.signalId
 
-  if (!approved) {
-    updateStep(step.id, { status: 'failed', completedAt: new Date().toISOString() })
-    return { [planStep.id]: { status: 'rejected', reason: 'Human rejected delegation' } }
+  if (!isSignalTriggered) {
+    const approved = await requestApproval(
+      wf, step,
+      `Delegate engineering to ${engine.name}: ${planStep.objective}`,
+      deps.emit, deps.waitForApproval
+    )
+
+    if (!approved) {
+      updateStep(step.id, { status: 'failed', completedAt: new Date().toISOString() })
+      return { [planStep.id]: { status: 'rejected', reason: 'Human rejected delegation' } }
+    }
+  } else {
+    trace(wf.id, 'delegate.auto_approved', {
+      stepId: step.id, status: 'success',
+      metadata: JSON.stringify({ reason: 'signal-triggered workflow, automation policy is prior consent' })
+    })
   }
 
   // Idempotency: check if this step already completed

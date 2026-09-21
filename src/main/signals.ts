@@ -124,7 +124,7 @@ export function processIngestedSignals(
     }
 
     // Signal is now claimed. Any failure from here must fail-closed.
-    const goal = `Investigate Sentry issue: "${signal.title}". ${signal.eventCount} event(s). Search the repository for relevant code and identify the likely cause.`
+    const goal = `Investigate and fix Sentry issue: "${signal.title}". ${signal.eventCount} event(s). Search the repository for relevant code, identify the likely cause, and implement a fix. Commit your changes and run tests.`
 
     try {
       onClaimed(signal, workflowId, goal)
