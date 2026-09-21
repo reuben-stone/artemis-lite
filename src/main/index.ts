@@ -660,7 +660,7 @@ function registerIpcHandlers(): void {
 
 // ── Signal collector ─────────────────────────────────────────────
 
-const SIGNAL_COLLECTOR_INTERVAL_MS = 2 * 60_000 // 2 minutes
+const SIGNAL_COLLECTOR_INTERVAL_MS = 20 * 60_000 // 20 minutes
 
 function buildToolContextForProject(project: { path: string; githubOwner: string | null; githubRepo: string | null; remote: string | null; id: string }): ToolContext {
   const ctx: ToolContext = { workspacePath: project.path }
