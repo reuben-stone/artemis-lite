@@ -1,6 +1,6 @@
 # Artemis Lite
 
-A persistent engineering operations system for supervising a portfolio of software repositories. Artemis Lite is a reconstruction of the original [Artemis](https://github.com/reuben-stone/artemis) around explicit workflow state, selective context, durable recovery and measurable execution.
+A persistent engineering operations system for supervising a portfolio of software repositories. Artemis Lite is a reconstruction of the original [Artemis](https://github.com/reuben-stone/artemis) around explicit workflow state, selective context, durable recovery and measurable execution. This is an ongoing personal engineering project; source is public for inspection and technical evaluation.
 
 ## Why it exists
 
@@ -116,7 +116,7 @@ Encrypted secrets (OS keychain via safeStorage)
 npm run dev          # Electron dev server
 npm run build        # Production build
 npm run typecheck    # TypeScript check (both configs)
-npm test             # Vitest (626 tests across 18 files)
+npm test             # Vitest (303 tests across 18 files)
 ```
 
 ## Documentation
@@ -130,7 +130,11 @@ npm test             # Vitest (626 tests across 18 files)
 ## Related
 
 - [Original Artemis](https://github.com/reuben-stone/artemis) - the full multi-agent operations system
-- [Engineering Case Study](https://reubenstone.co.uk/work/artemis/) - the story of both systems
+- [Engineering Case Study](https://www.reubenstone.co.uk/work/artemis) - portfolio case study covering both systems
+
+## Licence
+
+No open-source licence is currently granted. Unless otherwise stated, all rights are reserved.
 
 ## Author
 

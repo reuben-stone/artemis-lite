@@ -4,6 +4,7 @@
   "description": "Artemis Lite — reliable, observable agent workflows on the desktop",
   "type": "module",
   "main": "./out/main/index.js",
+  "license": "UNLICENSED",
   "author": "Reuben Stone",
   "scripts": {
     "dev": "electron-vite dev",
