@@ -27,7 +27,7 @@ const api = {
       ipcRenderer.invoke(IpcChannel.PROJECT_GET_ACTIVE),
     pickFolder: () =>
       ipcRenderer.invoke(IpcChannel.PROJECT_PICK_FOLDER),
-    updateIntegrations: (input: { projectId: string; sentryProject?: string; gaPropertyId?: string }) =>
+    updateIntegrations: (input: { projectId: string; sentryProject?: string; gaPropertyId?: string; automationPolicy?: string }) =>
       ipcRenderer.invoke(IpcChannel.PROJECT_UPDATE_INTEGRATIONS, input)
   },
   workflows: {
@@ -65,6 +65,14 @@ const api = {
   sentry: {
     issues: (input: { projectSlug: string }) =>
       ipcRenderer.invoke(IpcChannel.SENTRY_ISSUES, input)
+  },
+  signals: {
+    list: (input?: { projectId?: string }) =>
+      ipcRenderer.invoke(IpcChannel.SIGNAL_LIST, input ?? {}),
+    ignore: (input: { signalId: string }) =>
+      ipcRenderer.invoke(IpcChannel.SIGNAL_IGNORE, input),
+    ingest: (input: { projectId: string; projectSlug: string }) =>
+      ipcRenderer.invoke(IpcChannel.SIGNAL_INGEST, input)
   },
   github: {
     projectPrs: (input: { owner: string; repo: string }) =>

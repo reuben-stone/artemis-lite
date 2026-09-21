@@ -43,68 +43,80 @@ export function WorkflowRail({
   projects, activeProject, onAddProject, onSwitchProject, onRemoveProject,
   prs
 }: Props) {
-  const [prCollapsed, setPrCollapsed] = useState(false)
+  const [prCollapsed, setPrCollapsed] = useState(true)
+  const [portfolioCollapsed, setPortfolioCollapsed] = useState(false)
 
   return (
     <div className="workflow-rail">
       {/* Portfolio section */}
-      <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-        <div className="section-label">Portfolio</div>
-        <div style={{ padding: '0 8px 8px' }}>
-          {projects.map(p => (
-            <div
-              key={p.id}
-              className="project-item"
-              data-active={p.id === activeProject?.id ? 'true' : undefined}
-              onClick={() => onSwitchProject(p.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => { if (e.key === 'Enter') onSwitchProject(p.id) }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
-                <span style={{
-                  width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                  background: p.id === activeProject?.id ? 'var(--accent)' : 'var(--text-muted)'
-                }} />
-                <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
-                  {p.name}
-                </span>
-                {p.branch && (
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-muted)', flexShrink: 0 }}>
-                    {p.branch}
-                  </span>
-                )}
-                {p.dirty && (
-                  <span style={{ fontSize: 9, color: 'var(--status-warning)', flexShrink: 0 }}>M</span>
-                )}
-              </div>
-            </div>
-          ))}
-          <button className="btn btn-ghost" style={{ fontSize: 11, width: '100%', marginTop: 4 }} onClick={onAddProject}>
-            + Add repository
-          </button>
+      <div className="rail-section">
+        <div
+          className="rail-section-header"
+          onClick={() => setPortfolioCollapsed(!portfolioCollapsed)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={e => { if (e.key === 'Enter') setPortfolioCollapsed(!portfolioCollapsed) }}
+        >
+          <span>Portfolio</span>
+          <span className="rail-chevron" data-collapsed={portfolioCollapsed ? 'true' : undefined}>&#9662;</span>
         </div>
+        {!portfolioCollapsed && (
+          <div className="rail-section-body">
+            {projects.map(p => (
+              <div
+                key={p.id}
+                className="project-item"
+                data-active={p.id === activeProject?.id ? 'true' : undefined}
+                onClick={() => onSwitchProject(p.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter') onSwitchProject(p.id) }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, minWidth: 0 }}>
+                  <span style={{
+                    width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+                    background: p.id === activeProject?.id ? 'var(--accent)' : 'var(--text-muted)'
+                  }} />
+                  <span style={{ fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>
+                    {p.name}
+                  </span>
+                  {p.branch && (
+                    <span style={{ fontFamily: 'var(--mono)', fontSize: 9, color: 'var(--text-muted)', flexShrink: 0 }}>
+                      {p.branch}
+                    </span>
+                  )}
+                  {p.dirty && (
+                    <span style={{ fontSize: 9, color: 'var(--status-warning)', flexShrink: 0 }}>M</span>
+                  )}
+                </div>
+              </div>
+            ))}
+            <button className="btn btn-ghost" style={{ fontSize: 10, width: '100%', marginTop: 2, padding: '3px 8px' }} onClick={onAddProject}>
+              + Add repository
+            </button>
+          </div>
+        )}
       </div>
 
       {/* PR Queue section */}
-      <div style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+      <div className="rail-section">
         <div
-          className="section-label"
-          style={{ cursor: prs.length > 0 ? 'pointer' : 'default', display: 'flex', justifyContent: 'space-between', alignItems: 'center', userSelect: 'none' }}
+          className="rail-section-header"
           onClick={() => { if (prs.length > 0) setPrCollapsed(!prCollapsed) }}
           role={prs.length > 0 ? 'button' : undefined}
           tabIndex={prs.length > 0 ? 0 : undefined}
           onKeyDown={e => { if (e.key === 'Enter' && prs.length > 0) setPrCollapsed(!prCollapsed) }}
+          style={{ cursor: prs.length > 0 ? 'pointer' : 'default' }}
         >
           <span>PR Queue ({prs.length})</span>
           {prs.length > 0 && (
-            <span style={{ fontSize: 10, color: 'var(--text-muted)', transform: prCollapsed ? 'rotate(-90deg)' : 'rotate(0)', transition: 'transform 0.15s' }}>&#9662;</span>
+            <span className="rail-chevron" data-collapsed={prCollapsed ? 'true' : undefined}>&#9662;</span>
           )}
         </div>
         {prs.length === 0 ? (
-          <div style={{ padding: '0 8px 8px', fontSize: 11, color: 'var(--text-muted)' }}>No open PRs</div>
+          <div style={{ padding: '0 12px 6px', fontSize: 10, color: 'var(--text-muted)' }}>No open PRs</div>
         ) : !prCollapsed && (
-          <div style={{ padding: '0 8px 8px' }}>
+          <div className="rail-section-body rail-pr-list">
             {prs.map(pr => {
               const proj = projects.find(p => p.name === pr.project)
               const prUrl = proj?.githubOwner && proj?.githubRepo
@@ -113,18 +125,15 @@ export function WorkflowRail({
               return (
                 <a
                   key={`${pr.project}-${pr.number}`}
-                  className="project-item"
+                  className="rail-pr-item"
                   href={prUrl ?? '#'}
                   target={prUrl ? '_blank' : undefined}
                   rel="noopener"
-                  style={{ cursor: 'pointer', padding: '6px 8px', display: 'block', textDecoration: 'none', color: 'inherit' }}
                 >
-                  <div style={{ fontSize: 12, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {pr.title}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
-                    {pr.project} &middot; #{pr.number}{pr.draft ? ' &middot; draft' : ''}
-                  </div>
+                  <span className="rail-pr-title">{pr.title}</span>
+                  <span className="rail-pr-meta">
+                    {pr.project} #{pr.number}{pr.draft ? ' draft' : ''}
+                  </span>
                 </a>
               )
             })}
@@ -132,62 +141,67 @@ export function WorkflowRail({
         )}
       </div>
 
-      <div className="section-label">Workflows</div>
+      {/* Workflows section */}
+      <div className="rail-section" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div className="rail-section-header" style={{ cursor: 'default' }}>
+          <span>Workflows</span>
+        </div>
 
-      <div className="workflow-rail-list">
-        {workflows.length === 0 ? (
-          <div className="workflow-rail-empty">
-            <p><strong>No workflows yet</strong></p>
-            <p>Create a goal to inspect how Artemis Lite plans, executes and verifies it.</p>
-            <button className="btn btn-primary" onClick={onNew}>
-              New workflow
+        <div className="workflow-rail-list">
+          {workflows.length === 0 ? (
+            <div className="workflow-rail-empty">
+              <p><strong>No workflows yet</strong></p>
+              <p>Create a goal to inspect how Artemis Lite plans, executes and verifies it.</p>
+              <button className="btn btn-primary" onClick={onNew}>
+                New workflow
+              </button>
+            </div>
+          ) : (
+            workflows.map(w => (
+              <div
+                key={w.id}
+                className="workflow-rail-item"
+                data-selected={w.id === activeId ? 'true' : undefined}
+                onClick={() => onSelect(w.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={e => { if (e.key === 'Enter') onSelect(w.id) }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{
+                    width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                    background: statusColor(w.status)
+                  }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="workflow-rail-item-title">
+                      {w.goal.length > 40 ? w.goal.slice(0, 40) + '\u2026' : w.goal}
+                    </div>
+                    <div className="workflow-rail-item-meta">
+                      {statusLabel(w.status)} &middot; {formatTime(w.createdAt)}
+                    </div>
+                  </div>
+                  <button
+                    onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(w.id) }}
+                    className="workflow-delete-btn"
+                    title="Delete workflow"
+                    aria-label="Delete workflow"
+                  >
+                    &times;
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {workflows.length > 0 && (
+          <div className="workflow-rail-footer">
+            <button className="btn btn-ghost btn-block" onClick={onNew}>
+              + New workflow
             </button>
           </div>
-        ) : (
-          workflows.map(w => (
-            <div
-              key={w.id}
-              className="workflow-rail-item"
-              data-selected={w.id === activeId ? 'true' : undefined}
-              onClick={() => onSelect(w.id)}
-              role="button"
-              tabIndex={0}
-              onKeyDown={e => { if (e.key === 'Enter') onSelect(w.id) }}
-            >
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{
-                  width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                  background: statusColor(w.status)
-                }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className="workflow-rail-item-title">
-                    {w.goal.length > 40 ? w.goal.slice(0, 40) + '\u2026' : w.goal}
-                  </div>
-                  <div className="workflow-rail-item-meta">
-                    {statusLabel(w.status)} &middot; {formatTime(w.createdAt)}
-                  </div>
-                </div>
-                <button
-                  onClick={e => { e.stopPropagation(); e.preventDefault(); onDelete(w.id) }}
-                  className="workflow-delete-btn"
-                  title="Delete workflow"
-                  aria-label="Delete workflow"
-                >
-                  &times;
-                </button>
-              </div>
-            </div>
-          ))
         )}
       </div>
-
-      {workflows.length > 0 && (
-        <div className="workflow-rail-footer">
-          <button className="btn btn-ghost btn-block" onClick={onNew}>
-            + New workflow
-          </button>
-        </div>
-      )}
     </div>
   )
 }

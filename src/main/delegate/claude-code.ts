@@ -356,7 +356,7 @@ export async function executeDelegatedEngineering(
 
   markIdempotencyPending(idemKey)
   updateStep(step.id, { status: 'running', startedAt: new Date().toISOString() })
-  deps.emit({ type: 'step.started', workflowId: wf.id, step: { id: step.id, type: 'tool', status: 'running', toolName: 'delegate_engineering' } })
+  deps.emit({ type: 'step.started', workflowId: wf.id, step: { id: step.id, workflowId: wf.id, type: 'tool', status: 'running', attempt: step.attempt, toolName: 'delegate_engineering' } })
 
   let worktreePath: string | null = null
   let baseCommit: string | null = null
@@ -464,7 +464,7 @@ export async function executeDelegatedEngineering(
       outputData: JSON.stringify(result),
       completedAt: new Date().toISOString()
     })
-    deps.emit({ type: 'step.completed', workflowId: wf.id, step: { id: step.id, type: 'tool', status: 'completed', toolName: 'delegate_engineering' } })
+    deps.emit({ type: 'step.completed', workflowId: wf.id, step: { id: step.id, workflowId: wf.id, type: 'tool', status: 'completed', attempt: step.attempt, toolName: 'delegate_engineering' } })
 
     return { [planStep.id]: result }
 
@@ -542,15 +542,16 @@ export interface PublishPRResult {
   reconciled: boolean
 }
 
-export function buildPRTitle(goal: string, files: string[]): string {
+export function buildPRTitle(goal: string, files: string[], signalSource?: string | null): string {
+  const tag = signalSource ? ` [${signalSource}]` : ''
   // Extract a concise title from the goal
   const match = goal.match(/(?:fix|investigate|resolve)\s+(?:issue\s+in\s+)?(\w+):\s*"?([^"]+)"?/i)
   if (match) {
     const product = match[1].toLowerCase()
     const issue = match[2].slice(0, 60)
-    return `fix(${product}): ${issue}`
+    return `fix(${product}): ${issue}${tag}`
   }
-  return `fix: ${goal.slice(0, 70)}`
+  return `fix: ${goal.slice(0, 70)}${tag}`
 }
 
 export function buildPRBody(
@@ -635,6 +636,7 @@ export async function publishWorkflowPR(opts: {
   hasUncommittedChanges: boolean
   githubOwner: string
   githubRepo: string
+  signalSource?: string | null
 }): Promise<PublishPRResult> {
   // Safety: never push protected branches
   const branchBase = opts.branchName.split('/').pop() ?? opts.branchName
@@ -697,7 +699,7 @@ export async function publishWorkflowPR(opts: {
   })
 
   // Create PR via gh CLI (uses system gh auth, not Artemis-stored token)
-  const title = buildPRTitle(opts.goal, opts.diff.files)
+  const title = buildPRTitle(opts.goal, opts.diff.files, opts.signalSource)
   const body = buildPRBody(opts.goal, opts.engineOutput, opts.diff, opts.checks, opts.workflowId)
 
   // Write body to temp file to avoid shell escaping issues

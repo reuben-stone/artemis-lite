@@ -1,15 +1,22 @@
+import { useState } from 'react'
 import type { ReviewTab } from './ReviewDialog'
-import type { ReviewData } from './ReviewDialog'
+import type { ReviewData, SignalInfo } from './ReviewDialog'
 
 interface Props {
   data: ReviewData
   onSwitchTab: (tab: ReviewTab) => void
   onSelectWorkflow: (workflowId: string) => void
-  onInvestigate: (projectId: string, goal: string) => void
+  onInvestigate: (projectId: string, goal: string, signalId?: string) => void
+  onDismiss: (signalId: string) => void
   onClose: () => void
 }
 
-export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestigate, onClose }: Props) {
+function getSignalForIssue(signals: SignalInfo[], issueId: string): SignalInfo | undefined {
+  return signals.find(s => s.source === 'sentry' && s.externalId === issueId)
+}
+
+export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestigate, onDismiss, onClose }: Props) {
+  const [loadingAction, setLoadingAction] = useState<string | null>(null)
   const today = new Date()
   const dateStr = today.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 
@@ -18,33 +25,53 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
   // PRs from Artemis branches (our work)
   const artemisPrs = data.prs.filter(pr => pr.headBranch.startsWith('artemis/'))
 
-  // Issues that have a matching PR (resolved)
-  const resolvedIssues = data.issues.filter(issue =>
-    data.prs.some(pr => pr.headBranch.startsWith('artemis/') && pr.title.toLowerCase().includes(issue.projectLabel.toLowerCase()))
+  // Categorise issues by signal status
+  const issuesWithSignals = data.issues.map(issue => ({
+    issue,
+    signal: getSignalForIssue(data.signals, issue.id)
+  }))
+
+  // Issues ready for review (have published signal or matching PR)
+  const publishedIssues = issuesWithSignals.filter(({ signal }) =>
+    signal?.status === 'published'
   )
-  // Issues without a PR or completed workflow (needs attention)
-  const unresolvedIssues = data.issues.filter(issue => {
-    const hasPr = data.prs.some(pr => pr.headBranch.startsWith('artemis/') && pr.title.toLowerCase().includes(issue.projectLabel.toLowerCase()))
-    const hasWf = data.workflows.some(w => w.goal?.includes(issue.title.slice(0, 40)) && w.result?.status === 'succeeded')
-    return !hasPr && !hasWf
-  })
+
+  // Issues currently being investigated
+  const investigatingIssues = issuesWithSignals.filter(({ signal }) =>
+    signal?.status === 'investigating'
+  )
+
+  // Issues where investigation failed
+  const failedIssues = issuesWithSignals.filter(({ signal }) =>
+    signal?.status === 'failed'
+  )
+
+  // Issues needing attention (observed or no signal yet)
+  const needsAttentionIssues = issuesWithSignals.filter(({ signal }) =>
+    !signal || signal.status === 'observed'
+  )
+
+  // Issues already investigated but not yet published
+  const investigatedIssues = issuesWithSignals.filter(({ signal }) =>
+    signal?.status === 'investigated'
+  )
 
   // Summary counts
   const parts: string[] = []
   parts.push(`${data.portfolioRows.length} projects`)
   if (data.issues.length > 0) parts.push(`${data.issues.length} Sentry issue${data.issues.length !== 1 ? 's' : ''}`)
   if (artemisPrs.length > 0) parts.push(`${artemisPrs.length} fix${artemisPrs.length !== 1 ? 'es' : ''} prepared`)
-  if (unresolvedIssues.length > 0) parts.push(`${unresolvedIssues.length} needs attention`)
+  if (needsAttentionIssues.length > 0) parts.push(`${needsAttentionIssues.length} needs attention`)
 
   return (
     <div>
       <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>{dateStr}</div>
       <div style={{ fontSize: 15, color: 'var(--text-primary)', lineHeight: 1.6, marginBottom: 8 }}>
         Good morning, Reuben.{' '}
-        {unresolvedIssues.length > 0 || artemisPrs.length > 0 ? (
+        {needsAttentionIssues.length > 0 || artemisPrs.length > 0 ? (
           <>
-            {unresolvedIssues.length > 0 && `${unresolvedIssues.length} issue${unresolvedIssues.length !== 1 ? 's need' : ' needs'} your attention`}
-            {unresolvedIssues.length > 0 && artemisPrs.length > 0 && ' and '}
+            {needsAttentionIssues.length > 0 && `${needsAttentionIssues.length} issue${needsAttentionIssues.length !== 1 ? 's need' : ' needs'} your attention`}
+            {needsAttentionIssues.length > 0 && artemisPrs.length > 0 && ' and '}
             {artemisPrs.length > 0 && `${artemisPrs.length} verified fix${artemisPrs.length !== 1 ? 'es are' : ' is'} ready for review`}
             .
           </>
@@ -66,7 +93,6 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
             const prUrl = proj?.githubOwner && proj?.githubRepo
               ? `https://github.com/${proj.githubOwner}/${proj.githubRepo}/pull/${pr.number}`
               : null
-            // Find matching workflow with delegation details - match by branch or project name in goal
             const wf = data.workflows.find((w: any) =>
               (w as any).delegateOutput?.observed?.branchName === pr.headBranch ||
               w.goal?.toLowerCase().includes(pr.project.toLowerCase()) ||
@@ -76,14 +102,12 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
             const engineOutput = delegateOutput?.engine?.output ?? ''
             const observed = delegateOutput?.observed
 
-            // Extract a concise finding from the engine output
             let finding = ''
             if (engineOutput) {
               const cleaned = engineOutput
                 .replace(/^Done\.?\s*(Here'?s?\s*(a\s+)?summary[^:]*:?\s*)?/i, '')
                 .replace(/^---+\s*/m, '')
                 .trim()
-              // Take first meaningful sentence/line
               const firstLine = cleaned.split('\n').find((l: string) => l.trim().length > 20)
               if (firstLine) finding = firstLine.trim().slice(0, 150)
             }
@@ -107,8 +131,26 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
                   </div>
                 )}
                 <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 16px', fontSize: 12, marginBottom: 16 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Signal</span>
-                  <span style={{ color: 'var(--text-secondary)' }}>Sentry</span>
+                  {(() => {
+                    // Check for [sentry] tag in PR title (set by publishWorkflowPR)
+                    const tagMatch = pr.title.match(/\[(\w+)\]$/)
+                    if (tagMatch) {
+                      return (
+                        <>
+                          <span style={{ color: 'var(--text-muted)' }}>Signal</span>
+                          <span style={{ color: 'var(--text-secondary)' }}>{tagMatch[1].charAt(0).toUpperCase() + tagMatch[1].slice(1)}</span>
+                        </>
+                      )
+                    }
+                    // Fallback: check if workflow is linked to a signal
+                    const hasSignalLink = wf && data.signals.some(s => s.workflowId === wf.id)
+                    return hasSignalLink ? (
+                      <>
+                        <span style={{ color: 'var(--text-muted)' }}>Signal</span>
+                        <span style={{ color: 'var(--text-secondary)' }}>Sentry</span>
+                      </>
+                    ) : null
+                  })()}
                   <span style={{ color: 'var(--text-muted)' }}>Branch</span>
                   <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-secondary)' }}>{pr.headBranch}</span>
                   <span style={{ color: 'var(--text-muted)' }}>PR</span>
@@ -128,14 +170,14 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
         </div>
       )}
 
-      {/* Needs Attention - unresolved issues */}
-      {unresolvedIssues.length > 0 && (
+      {/* Investigating - in-progress workflows */}
+      {investigatingIssues.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
-            <div className="review-section-label" style={{ color: '#eab308' }}>Needs Attention</div>
-            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{unresolvedIssues.length}</div>
+            <div className="review-section-label" style={{ color: '#3b82f6' }}>Investigating</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{investigatingIssues.length}</div>
           </div>
-          {unresolvedIssues.slice(0, 3).map(issue => (
+          {investigatingIssues.map(({ issue, signal }) => (
             <div key={issue.id} className="review-card" style={{ padding: '16px 20px' }}>
               <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{issue.projectLabel}</div>
               <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
@@ -143,15 +185,84 @@ export function ReviewMorning({ data, onSwitchTab, onSelectWorkflow, onInvestiga
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 16px', fontSize: 12, marginBottom: 12 }}>
                 <span style={{ color: 'var(--text-muted)' }}>Signal</span>
-                <span style={{ color: 'var(--text-secondary)' }}>Sentry - {issue.count} events</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Sentry - {signal?.eventCount ?? issue.count} events</span>
+                <span style={{ color: 'var(--text-muted)' }}>Status</span>
+                <span style={{ color: '#3b82f6' }}>Investigating...</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {signal?.workflowId && (
+                  <button className="review-action" onClick={() => { onSelectWorkflow(signal.workflowId!); onClose() }}>View workflow</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Failed investigations */}
+      {failedIssues.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+            <div className="review-section-label" style={{ color: '#ef4444' }}>Investigation Failed</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{failedIssues.length}</div>
+          </div>
+          {failedIssues.map(({ issue, signal }) => (
+            <div key={issue.id} className="review-card" style={{ padding: '16px 20px' }}>
+              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{issue.projectLabel}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                {issue.message.length > 100 ? issue.message.slice(0, 100) + '...' : issue.message}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 16px', fontSize: 12, marginBottom: 12 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Signal</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Sentry - {signal?.eventCount ?? issue.count} events</span>
+                <span style={{ color: 'var(--text-muted)' }}>Status</span>
+                <span style={{ color: '#ef4444' }}>Investigation failed</span>
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                {signal?.workflowId && (
+                  <button className="review-action" onClick={() => { onSelectWorkflow(signal.workflowId!); onClose() }}>View trace</button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Needs Attention - observed or unknown issues */}
+      {needsAttentionIssues.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+            <div className="review-section-label" style={{ color: '#eab308' }}>Needs Attention</div>
+            <div style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text-muted)' }}>{needsAttentionIssues.length}</div>
+          </div>
+          {needsAttentionIssues.slice(0, 3).map(({ issue, signal }) => (
+            <div key={issue.id} className="review-card" style={{ padding: '16px 20px' }}>
+              <div style={{ fontSize: 15, fontWeight: 500, color: 'var(--text-primary)', marginBottom: 4 }}>{issue.projectLabel}</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>
+                {issue.message.length > 100 ? issue.message.slice(0, 100) + '...' : issue.message}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: '4px 16px', fontSize: 12, marginBottom: 12 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Signal</span>
+                <span style={{ color: 'var(--text-secondary)' }}>Sentry - {signal?.eventCount ?? issue.count} events</span>
                 <span style={{ color: 'var(--text-muted)' }}>Investigation</span>
                 <span style={{ color: '#eab308' }}>Not yet investigated</span>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 <button className="review-action" onClick={() => onSwitchTab('issues')}>View issue</button>
-                <button className="review-action-primary" onClick={() => {
-                  onInvestigate(issue.projectId, `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`)
-                }}>Investigate</button>
+                <button className="review-action-primary" disabled={!!loadingAction} onClick={() => {
+                  setLoadingAction(`investigate-${issue.id}`)
+                  onInvestigate(
+                    issue.projectId,
+                    `Investigate issue in ${issue.projectLabel}: "${issue.title}". ${issue.count} events. Search the repository for relevant code and identify the likely cause.`,
+                    signal?.id
+                  )
+                }}>{loadingAction === `investigate-${issue.id}` ? 'Starting...' : 'Investigate'}</button>
+                {signal && (
+                  <button className="review-action" disabled={!!loadingAction} onClick={async () => {
+                    setLoadingAction(`dismiss-${signal.id}`)
+                    try { await onDismiss(signal.id) } finally { setLoadingAction(null) }
+                  }}>{loadingAction === `dismiss-${signal.id}` ? 'Dismissing...' : 'Dismiss'}</button>
+                )}
               </div>
             </div>
           ))}

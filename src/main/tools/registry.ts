@@ -41,7 +41,8 @@ export interface ToolContext {
   githubIdentity?: GitHubIdentity
 }
 
-export type ToolRegistry = Map<string, ToolDefinition>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ToolRegistry = Map<string, ToolDefinition<any, any>>
 
 // ── Execute with validation ────────────────────────────────────────
 

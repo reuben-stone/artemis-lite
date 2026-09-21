@@ -76,6 +76,7 @@ export const StepSummary = z.object({
   type: StepType,
   status: StepStatus,
   attempt: z.number(),
+  toolName: z.string().optional(),
   startedAt: z.string().optional(),
   completedAt: z.string().optional()
 })
@@ -125,7 +126,8 @@ export type UsageSummary = z.infer<typeof UsageSummary>
 // ── IPC request/response schemas ───────────────────────────────────────
 
 export const StartWorkflowInput = z.object({
-  goal: z.string().min(1).max(2000)
+  goal: z.string().min(1).max(2000),
+  signalId: z.string().optional()
 })
 export type StartWorkflowInput = z.infer<typeof StartWorkflowInput>
 

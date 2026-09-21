@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { WorkflowItem, WorkflowStep, ApprovalData } from '../App'
 
 export interface WorkflowResultData {
@@ -15,6 +16,7 @@ interface Props {
   result: WorkflowResultData | null
   onPublishPR?: (workflowId: string) => void
   publishedPR?: { prNumber: number; prUrl: string; branch: string; repository: string } | null
+  busy?: boolean
 }
 
 function formatTime(iso: string): string {
@@ -242,7 +244,9 @@ function formatBytes(bytes: number): string {
 
 // ── Main panel ────────────────────────────────────────────────────
 
-export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, result, onPublishPR, publishedPR }: Props) {
+export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, result, onPublishPR, publishedPR, busy }: Props) {
+  const [publishing, setPublishing] = useState(false)
+  const [approving, setApproving] = useState<string | null>(null)
   if (!workflow) {
     return (
       <div className="workflow-panel">
@@ -335,9 +339,13 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
               <button
                 className="btn btn-primary"
                 style={{ fontSize: 12 }}
-                onClick={() => onPublishPR?.(workflow.id)}
+                disabled={publishing || busy}
+                onClick={async () => {
+                  setPublishing(true)
+                  try { await onPublishPR?.(workflow.id) } finally { setPublishing(false) }
+                }}
               >
-                {verificationPassed ? 'Publish Draft PR' : 'Publish Anyway'}
+                {publishing ? 'Publishing...' : verificationPassed ? 'Publish Draft PR' : 'Publish Anyway'}
               </button>
             </div>
           )
@@ -425,8 +433,14 @@ export function WorkflowPanel({ workflow, steps, pendingApproval, onApproval, re
                     <div style={{ fontSize: 13, marginBottom: 4 }}>{pendingApproval.action}</div>
                     <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>{pendingApproval.summary}</div>
                     <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-                      <button className="btn btn-ghost" onClick={() => onApproval(pendingApproval.id, 'rejected')}>Reject</button>
-                      <button className="btn btn-primary" onClick={() => onApproval(pendingApproval.id, 'approved')}>Approve</button>
+                      <button className="btn btn-ghost" disabled={!!approving} onClick={async () => {
+                        setApproving('rejected')
+                        try { await onApproval(pendingApproval.id, 'rejected') } finally { setApproving(null) }
+                      }}>{approving === 'rejected' ? 'Rejecting...' : 'Reject'}</button>
+                      <button className="btn btn-primary" disabled={!!approving} onClick={async () => {
+                        setApproving('approved')
+                        try { await onApproval(pendingApproval.id, 'approved') } finally { setApproving(null) }
+                      }}>{approving === 'approved' ? 'Approving...' : 'Approve'}</button>
                     </div>
                   </div>
                 )}

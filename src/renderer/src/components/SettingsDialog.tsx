@@ -70,7 +70,7 @@ export function SettingsDialog({ onClose }: Props) {
     }
   }
 
-  const handleClear = async (name: 'anthropic' | 'github') => {
+  const handleClear = async (name: string) => {
     await window.artemis.secrets.clear({ name })
     const result = await window.artemis.secrets.has({ name })
     setSecrets(prev => ({ ...prev, [name]: result.has }))
@@ -370,6 +370,32 @@ function ProjectIntegrations() {
                 </button>
               )}
             </div>
+
+            {maps.some(m => m.sentrySlug) && (
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginTop: 12, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={p.automationPolicy === 'auto_investigate'}
+                  onChange={async (e) => {
+                    const policy = e.target.checked ? 'auto_investigate' : 'observe_only'
+                    await window.artemis.projects.updateIntegrations({
+                      projectId: p.id,
+                      automationPolicy: policy
+                    })
+                    setProjects((prev: any[]) => prev.map(proj =>
+                      proj.id === p.id ? { ...proj, automationPolicy: policy } : proj
+                    ))
+                  }}
+                  style={{ marginTop: 2 }}
+                />
+                <div>
+                  <div style={{ fontSize: 11, color: 'var(--text-primary)' }}>Auto-investigate Sentry issues</div>
+                  <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2 }}>
+                    Automatically investigate new error and fatal issues. Verified changes may be published as draft pull requests for review.
+                  </div>
+                </div>
+              </label>
+            )}
           </div>
         )
       })}

@@ -22,6 +22,7 @@ export interface ProjectRow {
   githubRepo: string | null
   sentryProject: string | null
   gaPropertyId: string | null
+  automationPolicy: string  // 'observe_only' | 'auto_investigate'
   createdAt: string
 }
 
@@ -32,6 +33,7 @@ export interface WorkflowRow {
   plan: string | null       // JSON
   currentStepId: string | null
   projectId: string | null  // FK to projects
+  signalId: string | null   // FK to operational_signals (if triggered by signal)
   createdAt: string
   updatedAt: string
 }
@@ -99,6 +101,24 @@ export interface WorkflowResultRow {
   verificationReason: string | null
   artifacts: string | null  // JSON: WorkflowArtifact[]
   createdAt: string
+}
+
+export interface SignalRow {
+  id: string
+  source: string              // 'sentry' (future: 'ci', 'monitor')
+  externalId: string          // Sentry issue ID (stable numeric)
+  shortId: string | null      // e.g. "LUMI-42"
+  projectId: string           // Artemis project ID
+  title: string
+  level: string | null        // error/warning/fatal
+  eventCount: number
+  firstSeen: string | null
+  lastSeen: string | null
+  status: string              // observed/investigating/investigated/published/resolved/ignored
+  workflowId: string | null   // set when workflow claimed
+  prNumber: number | null     // set when PR published
+  createdAt: string
+  updatedAt: string
 }
 
 export interface UsageRow {
@@ -250,6 +270,28 @@ function initDb(d: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_trace_workflow ON trace_events(workflowId);
     CREATE INDEX IF NOT EXISTS idx_usage_workflow ON usage_records(workflowId);
     CREATE INDEX IF NOT EXISTS idx_approvals_workflow ON approvals(workflowId);
+
+    CREATE TABLE IF NOT EXISTS operational_signals (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL,
+      externalId TEXT NOT NULL,
+      shortId TEXT,
+      projectId TEXT NOT NULL,
+      title TEXT NOT NULL,
+      level TEXT,
+      eventCount INTEGER NOT NULL DEFAULT 0,
+      firstSeen TEXT,
+      lastSeen TEXT,
+      status TEXT NOT NULL DEFAULT 'observed',
+      workflowId TEXT,
+      prNumber INTEGER,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      UNIQUE(source, externalId)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_signals_project ON operational_signals(projectId);
+    CREATE INDEX IF NOT EXISTS idx_signals_status ON operational_signals(status);
   `)
 
   d.exec(`
@@ -283,6 +325,16 @@ function initDb(d: Database.Database): void {
   if (!colNames.has('gaPropertyId')) {
     d.exec('ALTER TABLE projects ADD COLUMN gaPropertyId TEXT')
   }
+  if (!colNames.has('automationPolicy')) {
+    d.exec("ALTER TABLE projects ADD COLUMN automationPolicy TEXT DEFAULT 'observe_only'")
+  }
+
+  // Add signalId to workflows (links workflow to the signal that triggered it)
+  const wfCols = d.prepare("PRAGMA table_info(workflows)").all() as { name: string }[]
+  const wfColNames = new Set(wfCols.map(c => c.name))
+  if (!wfColNames.has('signalId')) {
+    d.exec('ALTER TABLE workflows ADD COLUMN signalId TEXT')
+  }
 }
 
 // ── Project CRUD ──────────────────────────────────────────────────
@@ -301,6 +353,9 @@ export function createProject(
     remote: remote ?? null,
     githubOwner: github?.owner ?? null,
     githubRepo: github?.repo ?? null,
+    sentryProject: null,
+    gaPropertyId: null,
+    automationPolicy: 'observe_only',
     createdAt: new Date().toISOString()
   }
   d.prepare(`INSERT INTO projects (id, name, path, remote, githubOwner, githubRepo, createdAt) VALUES (?, ?, ?, ?, ?, ?, ?)`)
@@ -313,13 +368,16 @@ export function updateProjectGitHub(id: string, owner: string | null, repo: stri
     .run(owner, repo, id)
 }
 
-export function updateProjectIntegrations(id: string, fields: { sentryProject?: string | null; gaPropertyId?: string | null }): void {
+export function updateProjectIntegrations(id: string, fields: { sentryProject?: string | null; gaPropertyId?: string | null; automationPolicy?: string }): void {
   const d = getDb()
   if (fields.sentryProject !== undefined) {
     d.prepare('UPDATE projects SET sentryProject = ? WHERE id = ?').run(fields.sentryProject, id)
   }
   if (fields.gaPropertyId !== undefined) {
     d.prepare('UPDATE projects SET gaPropertyId = ? WHERE id = ?').run(fields.gaPropertyId, id)
+  }
+  if (fields.automationPolicy !== undefined) {
+    d.prepare('UPDATE projects SET automationPolicy = ? WHERE id = ?').run(fields.automationPolicy, id)
   }
 }
 
@@ -407,23 +465,24 @@ export function getWorkflowResult(workflowId: string): WorkflowResultRow | undef
 
 // ── Workflow CRUD ──────────────────────────────────────────────────
 
-export function createWorkflow(goal: string, projectId?: string | null): WorkflowRow {
+export function createWorkflow(goal: string, projectId?: string | null, signalId?: string | null, id?: string): WorkflowRow {
   const d = getDb()
   const now = new Date().toISOString()
   const row: WorkflowRow = {
-    id: randomUUID(),
+    id: id ?? randomUUID(),
     goal,
     status: 'queued',
     plan: null,
     currentStepId: null,
     projectId: projectId ?? null,
+    signalId: signalId ?? null,
     createdAt: now,
     updatedAt: now
   }
   d.prepare(`
-    INSERT INTO workflows (id, goal, status, plan, currentStepId, projectId, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(row.id, row.goal, row.status, row.plan, row.currentStepId, row.projectId, row.createdAt, row.updatedAt)
+    INSERT INTO workflows (id, goal, status, plan, currentStepId, projectId, signalId, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(row.id, row.goal, row.status, row.plan, row.currentStepId, row.projectId, row.signalId, row.createdAt, row.updatedAt)
   return row
 }
 
@@ -443,6 +502,8 @@ export function listNonTerminalWorkflows(): WorkflowRow[] {
 
 export function deleteWorkflow(id: string): void {
   const d = getDb()
+  // Clear signal reference but don't delete the signal itself
+  d.prepare("UPDATE operational_signals SET workflowId = NULL WHERE workflowId = ?").run(id)
   d.prepare('DELETE FROM workflow_results WHERE workflowId = ?').run(id)
   d.prepare('DELETE FROM context_packets WHERE workflowId = ?').run(id)
   d.prepare('DELETE FROM usage_records WHERE workflowId = ?').run(id)
@@ -662,4 +723,113 @@ export function updateContextPacketProviderTokens(id: string, providerInputToken
 export function listContextPackets(workflowId: string): ContextPacketRow[] {
   return getDb().prepare('SELECT * FROM context_packets WHERE workflowId = ? ORDER BY createdAt')
     .all(workflowId) as ContextPacketRow[]
+}
+
+// ── Operational signals ───────────────────────────────────────────
+// Core invariant: one external problem = one durable identity.
+// UNIQUE(source, externalId) + INSERT ON CONFLICT = atomic dedup.
+
+/**
+ * Atomic observation upsert. Deduplicates identity (requirement A).
+ *
+ * On INSERT: creates new signal with status 'observed'.
+ * On CONFLICT: updates only observational fields (eventCount, lastSeen, title, level).
+ *              NEVER regresses status, workflowId, or prNumber.
+ *
+ * Returns { row, isNew } so callers know if this was a first observation.
+ */
+export function upsertSignal(
+  fields: { source: string; externalId: string; shortId?: string | null; projectId: string; title: string; level?: string | null; eventCount: number; firstSeen?: string | null; lastSeen?: string | null }
+): { row: SignalRow; isNew: boolean } {
+  const d = getDb()
+  const now = new Date().toISOString()
+  const id = randomUUID()
+
+  const result = d.prepare(`
+    INSERT INTO operational_signals (id, source, externalId, shortId, projectId, title, level, eventCount, firstSeen, lastSeen, status, workflowId, prNumber, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'observed', NULL, NULL, ?, ?)
+    ON CONFLICT(source, externalId) DO UPDATE SET
+      eventCount = excluded.eventCount,
+      lastSeen = excluded.lastSeen,
+      title = excluded.title,
+      level = excluded.level,
+      updatedAt = excluded.updatedAt
+  `).run(
+    id, fields.source, fields.externalId, fields.shortId ?? null, fields.projectId,
+    fields.title, fields.level ?? null, fields.eventCount, fields.firstSeen ?? null, fields.lastSeen ?? null,
+    now, now
+  )
+
+  const row = getSignalByExternalId(fields.source, fields.externalId)!
+  // If the row's id matches what we generated, it was inserted (new)
+  const isNew = row.id === id
+  return { row, isNew }
+}
+
+export function getSignalByExternalId(source: string, externalId: string): SignalRow | undefined {
+  return getDb().prepare('SELECT * FROM operational_signals WHERE source = ? AND externalId = ?')
+    .get(source, externalId) as SignalRow | undefined
+}
+
+export function getSignal(id: string): SignalRow | undefined {
+  return getDb().prepare('SELECT * FROM operational_signals WHERE id = ?')
+    .get(id) as SignalRow | undefined
+}
+
+export function listSignals(projectId?: string): SignalRow[] {
+  if (projectId) {
+    return getDb().prepare('SELECT * FROM operational_signals WHERE projectId = ? ORDER BY updatedAt DESC')
+      .all(projectId) as SignalRow[]
+  }
+  return getDb().prepare('SELECT * FROM operational_signals ORDER BY updatedAt DESC')
+    .all() as SignalRow[]
+}
+
+export function listSignalsByStatus(status: string): SignalRow[] {
+  return getDb().prepare('SELECT * FROM operational_signals WHERE status = ? ORDER BY updatedAt DESC')
+    .all(status) as SignalRow[]
+}
+
+/**
+ * Atomic compare-and-set claim. Returns true if this caller won the claim.
+ * Only one concurrent caller can transition observed -> investigating.
+ * If false, another execution path already owns this signal.
+ *
+ * CRITICAL: No specialist execution may begin unless the caller
+ * successfully owns the signal claim (return value === true).
+ */
+export function claimSignal(id: string, workflowId: string): boolean {
+  const now = new Date().toISOString()
+  const result = getDb().prepare(
+    "UPDATE operational_signals SET status = 'investigating', workflowId = ?, updatedAt = ? WHERE id = ? AND status = 'observed' AND workflowId IS NULL"
+  ).run(workflowId, now, id)
+  return result.changes === 1
+}
+
+export function completeSignal(id: string): void {
+  const now = new Date().toISOString()
+  getDb().prepare(
+    "UPDATE operational_signals SET status = 'investigated', updatedAt = ? WHERE id = ? AND status = 'investigating'"
+  ).run(now, id)
+}
+
+export function failSignal(id: string): void {
+  const now = new Date().toISOString()
+  getDb().prepare(
+    "UPDATE operational_signals SET status = 'failed', updatedAt = ? WHERE id = ? AND status = 'investigating'"
+  ).run(now, id)
+}
+
+export function publishSignal(id: string, prNumber: number): void {
+  const now = new Date().toISOString()
+  getDb().prepare(
+    "UPDATE operational_signals SET status = 'published', prNumber = ?, updatedAt = ? WHERE id = ?"
+  ).run(prNumber, now, id)
+}
+
+export function ignoreSignal(id: string): void {
+  const now = new Date().toISOString()
+  getDb().prepare(
+    "UPDATE operational_signals SET status = 'ignored', updatedAt = ? WHERE id = ?"
+  ).run(now, id)
 }

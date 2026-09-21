@@ -46,6 +46,11 @@ export const IpcChannel = {
   SCHEDULE_REMOVE: 'schedule:remove',
   SCHEDULE_TOGGLE: 'schedule:toggle',
 
+  // Operational signals
+  SIGNAL_LIST: 'signal:list',
+  SIGNAL_IGNORE: 'signal:ignore',
+  SIGNAL_INGEST: 'signal:ingest',
+
   // Failure Lab
   FAULT_ARM: 'fault:arm',
   FAULT_DISARM: 'fault:disarm',

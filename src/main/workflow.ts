@@ -12,7 +12,8 @@ import {
   checkIdempotency, markIdempotencyPending, markIdempotencyComplete,
   idempotencyKey, appendUsage, getWorkflowUsage, listPendingApprovals,
   appendContextPacket, updateContextPacketProviderTokens,
-  createWorkflowResult
+  createWorkflowResult,
+  completeSignal, failSignal, publishSignal
 } from './store'
 import type { WorkflowRow, StepRow, ApprovalRow, WorkflowArtifact } from './store'
 import type { ModelProvider, PlanOutput, InvestigationEvidence } from './model/types'
@@ -728,7 +729,7 @@ async function executeInvestigation(
       sufficient = action.outcome === 'supported'
 
       // Persist conclusion as a reason step
-      const reasonStep = createStep(wf.id, 'reason', null, {
+      const reasonStep = createStep(wf.id, 'reason', undefined, {
         investigationId,
         conclusion: action.conclusion,
         outcome: action.outcome,
@@ -1059,6 +1060,12 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     const summary = buildResultSummary(goal, artifacts, verification)
     createWorkflowResult(wf.id, resultStatus, summary, verification.reason, artifacts)
 
+    // Transition signal: investigating -> investigated
+    const freshWf = getWorkflow(wf.id)
+    if (freshWf?.signalId) {
+      completeSignal(freshWf.signalId)
+    }
+
     trace(wf.id, 'workflow.completed', { status: 'success' })
     emit({ type: 'workflow.completed', workflowId: wf.id, usage })
     emit({ type: 'workflow.status', workflowId: wf.id, status: 'completed' })
@@ -1078,7 +1085,7 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
 
             trace(wf.id, 'publication.readiness', {
               status: readiness.ready ? 'success' : 'failure',
-              metadata: { ready: readiness.ready, reason: readiness.reason, checks: readiness.detail }
+              metadata: JSON.stringify({ ready: readiness.ready, reason: readiness.reason, checks: readiness.detail })
             })
 
             if (readiness.ready) {
@@ -1095,12 +1102,20 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
                 checks: (observed.checks ?? []).map((c: any) => ({ check: c.check, passed: c.passed, skipped: c.skipped })),
                 hasUncommittedChanges: observed.gitState?.hasUncommittedChanges ?? false,
                 githubOwner: ghId.owner,
-                githubRepo: ghId.repo
+                githubRepo: ghId.repo,
+                signalSource: freshWf?.signalId ? 'sentry' : null
               })
               trace(wf.id, 'publication.completed', {
                 status: 'success',
-                metadata: { prNumber: prResult.prNumber, prUrl: prResult.prUrl, reconciled: prResult.reconciled }
+                metadata: JSON.stringify({ prNumber: prResult.prNumber, prUrl: prResult.prUrl, reconciled: prResult.reconciled })
               })
+
+              // Transition signal: investigated -> published
+              const pubWf = getWorkflow(wf.id)
+              if (pubWf?.signalId) {
+                publishSignal(pubWf.signalId, prResult.prNumber)
+              }
+
               emit({ type: 'model.text', workflowId: wf.id, text: `Draft PR #${prResult.prNumber} published` })
 
               // Clean up worktree
@@ -1133,6 +1148,13 @@ export async function runWorkflow(goal: string, deps: OrchestratorDeps, projectI
     }
     try { transition(wf, 'failed') } catch { /* already terminal */ }
     createWorkflowResult(wf.id, 'failed', errMsg, errMsg)
+
+    // Transition signal: investigating -> failed (remains deduplicated)
+    const freshWf = getWorkflow(wf.id)
+    if (freshWf?.signalId) {
+      failSignal(freshWf.signalId)
+    }
+
     trace(wf.id, 'workflow.failed', { status: 'failure', errorCode: errMsg })
     emit({ type: 'workflow.failed', workflowId: wf.id, error: errMsg })
     return getWorkflow(wf.id)!

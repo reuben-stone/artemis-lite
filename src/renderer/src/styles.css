@@ -172,7 +172,39 @@ body {
   background: var(--bg-panel);
 }
 
-/* ── Section labels ─────────────────────────────────────────────── */
+/* ── Rail sections ─────────────────────────────────────────────── */
+.rail-section {
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.rail-section-header {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  padding: 10px 12px 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+  cursor: pointer;
+}
+
+.rail-chevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+.rail-chevron[data-collapsed="true"] {
+  transform: rotate(-90deg);
+}
+
+.rail-section-body {
+  padding: 0 8px 6px;
+}
+
+/* Legacy section-label kept for non-rail usage */
 .section-label {
   font-size: 10px;
   font-weight: 600;
@@ -184,7 +216,7 @@ body {
 
 /* ── Project items ─────────────────────────────────────────────── */
 .project-item {
-  padding: 5px 8px;
+  padding: 4px 8px;
   border-radius: var(--radius);
   cursor: pointer;
   border: 1px solid transparent;
@@ -195,6 +227,42 @@ body {
   background: var(--bg-selected);
   border-color: var(--border-subtle);
   color: var(--text-primary);
+}
+
+/* ── PR Queue items ───────────────────────────────────────────── */
+.rail-pr-list {
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.rail-pr-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+.rail-pr-item:hover { background: var(--bg-hover); }
+
+.rail-pr-title {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.rail-pr-meta {
+  font-size: 9px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── Workflow rail ──────────────────────────────────────────────── */
@@ -214,7 +282,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px;
+  padding: 6px 8px;
   border-radius: var(--radius);
   cursor: pointer;
   border: 1px solid transparent;
@@ -244,7 +312,7 @@ body {
 }
 
 .workflow-rail-item-title {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
@@ -255,12 +323,12 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
 }
 
 .workflow-rail-footer {
-  padding: 8px;
+  padding: 6px 8px;
   border-top: 1px solid var(--border-subtle);
 }
 
@@ -654,6 +722,7 @@ body {
 }
 
 .btn-ghost:hover { background: var(--bg-hover); }
+.btn-ghost:disabled { opacity: 0.4; cursor: default; }
 
 .btn-block { width: 100%; }
 
@@ -703,6 +772,7 @@ body {
   cursor: pointer;
 }
 .review-action:hover { border-color: var(--border-strong); }
+.review-action:disabled { opacity: 0.4; cursor: default; }
 
 .review-action-primary {
   padding: 3px 10px;
@@ -714,6 +784,7 @@ body {
   cursor: pointer;
 }
 .review-action-primary:hover { background: var(--accent-subtle); }
+.review-action-primary:disabled { opacity: 0.4; cursor: default; }
 
 .review-link {
   font-family: var(--mono);

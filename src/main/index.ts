@@ -24,8 +24,11 @@ import {
   createProject, getProject, listProjects, removeProject,
   getActiveProject, getActiveProjectId, setActiveProjectId,
   getProjectByPath, updateProjectGitHub, updateProjectIntegrations, getWorkflowResult,
-  getDb, createWorkflow
+  getDb, createWorkflow, listSignals, ignoreSignal, claimSignal, getSignal,
+  failSignal, publishSignal
 } from './store'
+import { ingestSentryIssues, collectAndProcessSignals, isCollecting, setCollecting } from './signals'
+import type { SignalRow } from './store'
 import { runWorkflow, resumeWorkflow, discoverInterruptedWorkflows, resolveWorkflowApproval } from './workflow'
 import { AnthropicProvider } from './model/anthropic'
 import { createDefaultRegistry } from './tools/registry'
@@ -180,6 +183,7 @@ function registerIpcHandlers(): void {
         gaPropertyId: p.gaPropertyId ?? null,
         githubOwner: p.githubOwner ?? null,
         githubRepo: p.githubRepo ?? null,
+        automationPolicy: p.automationPolicy ?? 'observe_only',
         createdAt: p.createdAt
       })
     }
@@ -251,10 +255,11 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IpcChannel.PROJECT_UPDATE_INTEGRATIONS, async (_event, raw: unknown) => {
-    const input = raw as { projectId: string; sentryProject?: string; gaPropertyId?: string }
+    const input = raw as { projectId: string; sentryProject?: string; gaPropertyId?: string; automationPolicy?: string }
     updateProjectIntegrations(input.projectId, {
       sentryProject: input.sentryProject,
-      gaPropertyId: input.gaPropertyId
+      gaPropertyId: input.gaPropertyId,
+      automationPolicy: input.automationPolicy
     })
     return { updated: true }
   })
@@ -267,18 +272,60 @@ function registerIpcHandlers(): void {
     const config = getAppConfig()
     const { projectId, workspacePath } = requireActiveProject()
 
-    // Create the workflow row synchronously so we can return the real ID immediately
+    // If this workflow is triggered by an operational signal, claim it atomically
+    // BEFORE creating the workflow. If the claim fails, another path already owns it.
+    if (input.signalId) {
+      const { randomUUID } = require('crypto')
+      const workflowId = randomUUID()
+
+      // Atomic compare-and-set: claim with the final workflow ID
+      const claimed = claimSignal(input.signalId, workflowId)
+      if (!claimed) {
+        const existing = getSignal(input.signalId)
+        return {
+          id: null,
+          claimed: false,
+          existingWorkflowId: existing?.workflowId ?? null,
+          signalStatus: existing?.status ?? null
+        }
+      }
+
+      // Claim succeeded. Create workflow using the same ID that owns the signal.
+      // If creation fails, transition signal to failed so it never silently
+      // becomes eligible for fresh consequential work.
+      let wfRow
+      try {
+        wfRow = createWorkflow(input.goal, projectId, input.signalId, workflowId)
+      } catch (err) {
+        failSignal(input.signalId)
+        throw err
+      }
+
+      const model = new AnthropicProvider(apiKey, config.anthropicModel)
+      const tools = createDefaultRegistry()
+      const toolCtx = buildToolContext(workspacePath)
+
+      runWorkflow(input.goal, {
+        model, tools, workspacePath,
+        toolContext: toolCtx,
+        emit: emitToRenderer,
+        faultInjector
+      }, projectId, wfRow.id).catch(err => {
+        console.error('[Workflow] Background execution failed:', err)
+      })
+
+      return { id: wfRow.id, goal: wfRow.goal, status: wfRow.status, claimed: true }
+    }
+
+    // Non-signal workflow: create and run normally
     const wfRow = createWorkflow(input.goal, projectId)
 
-    // Run execution in background — events stream to renderer via emitToRenderer
     const model = new AnthropicProvider(apiKey, config.anthropicModel)
     const tools = createDefaultRegistry()
     const toolCtx = buildToolContext(workspacePath)
 
     runWorkflow(input.goal, {
-      model,
-      tools,
-      workspacePath,
+      model, tools, workspacePath,
       toolContext: toolCtx,
       emit: emitToRenderer,
       faultInjector
@@ -286,7 +333,6 @@ function registerIpcHandlers(): void {
       console.error('[Workflow] Background execution failed:', err)
     })
 
-    // Return immediately so the renderer has the real ID for event matching
     return { id: wfRow.id, goal: wfRow.goal, status: wfRow.status }
   })
 
@@ -385,8 +431,14 @@ function registerIpcHandlers(): void {
       checks: observed.checks.map((c: any) => ({ check: c.check, passed: c.passed, skipped: c.skipped })),
       hasUncommittedChanges: observed.gitState?.hasUncommittedChanges ?? false,
       githubOwner: project.githubOwner,
-      githubRepo: project.githubRepo
+      githubRepo: project.githubRepo,
+      signalSource: wf.signalId ? 'sentry' : null
     })
+
+    // Transition signal: investigated -> published (manual publication)
+    if (wf.signalId) {
+      publishSignal(wf.signalId, result.prNumber)
+    }
 
     // Clean up worktree after successful publication
     try {
@@ -465,6 +517,33 @@ function registerIpcHandlers(): void {
       return { issues }
     } catch (err: any) {
       return { issues: [], error: err.message }
+    }
+  })
+
+  // ── Signal handlers ──────────────────────────────────────────────
+
+  ipcMain.handle(IpcChannel.SIGNAL_LIST, async (_event, raw: unknown) => {
+    const input = (raw ?? {}) as { projectId?: string }
+    const signals = listSignals(input.projectId)
+    return { signals }
+  })
+
+  ipcMain.handle(IpcChannel.SIGNAL_IGNORE, async (_event, raw: unknown) => {
+    const { signalId } = raw as { signalId: string }
+    ignoreSignal(signalId)
+    return { ignored: true }
+  })
+
+  ipcMain.handle(IpcChannel.SIGNAL_INGEST, async (_event, raw: unknown) => {
+    const { projectId, projectSlug } = raw as { projectId: string; projectSlug: string }
+    const client = createSentryClient()
+    if (!client) return { new: [], updated: [], error: 'Sentry not configured' }
+    try {
+      const issues = await client.listIssues(projectSlug)
+      const result = ingestSentryIssues(issues, projectId)
+      return result
+    } catch (err: any) {
+      return { new: [], updated: [], error: err.message }
     }
   })
 
@@ -579,6 +658,106 @@ function registerIpcHandlers(): void {
   })
 }
 
+// ── Signal collector ─────────────────────────────────────────────
+
+const SIGNAL_COLLECTOR_INTERVAL_MS = 2 * 60_000 // 2 minutes
+
+function buildToolContextForProject(project: { path: string; githubOwner: string | null; githubRepo: string | null; remote: string | null; id: string }): ToolContext {
+  const ctx: ToolContext = { workspacePath: project.path }
+  const ghToken = getGitHubToken()
+  if (ghToken) {
+    ctx.githubClient = new GitHubClient(ghToken)
+    if (project.githubOwner && project.githubRepo) {
+      ctx.githubIdentity = { owner: project.githubOwner, repo: project.githubRepo }
+    } else if (project.remote) {
+      const identity = parseGitHubRemote(project.remote)
+      if (identity) {
+        updateProjectGitHub(project.id, identity.owner, identity.repo)
+        ctx.githubIdentity = identity
+      }
+    }
+  }
+  return ctx
+}
+
+async function signalCollectorTick(): Promise<void> {
+  // Overlap guard: if a previous tick is still running, skip this one.
+  // The guard resets in finally so an exception cannot permanently stop collection.
+  if (isCollecting()) {
+    console.log('[SignalCollector] Skipping tick - previous collection still in progress')
+    return
+  }
+
+  setCollecting(true)
+  try {
+    const projects = listProjects()
+
+    for (const project of projects) {
+      // Parse sentry mappings
+      let mappings: any[] = []
+      try {
+        if (project.sentryProject?.startsWith('['))
+          mappings = JSON.parse(project.sentryProject)
+      } catch { continue }
+
+      // Check execution prerequisites before claiming any signals.
+      // If prerequisites are unavailable, downgrade to observe_only
+      // so signals are ingested but never claimed.
+      let effectivePolicy = project.automationPolicy ?? 'observe_only'
+      if (effectivePolicy === 'auto_investigate') {
+        if (!hasSecret('anthropic')) {
+          effectivePolicy = 'observe_only'
+        } else if (!existsSync(project.path)) {
+          effectivePolicy = 'observe_only'
+        }
+      }
+
+      for (const m of mappings) {
+        if (!m.sentrySlug) continue
+        try {
+          const result = await collectAndProcessSignals({
+            projectId: project.id,
+            sentrySlug: m.sentrySlug,
+            automationPolicy: effectivePolicy,
+            onClaimed: (signal: SignalRow, workflowId: string, goal: string) => {
+              // Signal is already claimed. Any throw here will fail-closed
+              // via the try/catch in processIngestedSignals.
+              const apiKey = requireKey()
+              const config = getAppConfig()
+
+              if (!existsSync(project.path)) {
+                throw new Error(`Project path does not exist: ${project.path}`)
+              }
+
+              const wf = createWorkflow(goal, project.id, signal.id, workflowId)
+              emitToRenderer({ type: 'workflow.status', workflowId: wf.id, status: 'queued' })
+
+              const model = new AnthropicProvider(apiKey, config.anthropicModel)
+              const tools = createDefaultRegistry()
+              const toolCtx = buildToolContextForProject(project)
+
+              runWorkflow(goal, {
+                model, tools, workspacePath: project.path,
+                toolContext: toolCtx, emit: emitToRenderer, faultInjector
+              }, project.id, wf.id).catch(err => {
+                console.error(`[SignalCollector] Workflow ${wf.id} failed:`, err)
+              })
+            }
+          })
+
+          if (result.claimed > 0) {
+            console.log(`[SignalCollector] ${project.name}/${m.sentrySlug}: ingested=${result.ingested} claimed=${result.claimed} skipped=${result.skipped}`)
+          }
+        } catch (err) {
+          console.error(`[SignalCollector] ${project.name}/${m.sentrySlug}:`, err)
+        }
+      }
+    }
+  } finally {
+    setCollecting(false)
+  }
+}
+
 // ── App lifecycle ────────────────────────────────────────────────
 
 app.whenReady().then(() => {
@@ -588,7 +767,7 @@ app.whenReady().then(() => {
   try {
     scheduler = new Scheduler({
       getDb,
-      createWorkflowFn: (goal: string, projectId: string | null) => {
+      createWorkflowFn: (goal: string, projectId?: string | null) => {
         const wf = createWorkflow(goal, projectId)
         emitToRenderer({ type: 'workflow.status', workflowId: wf.id, status: 'queued' })
       }
@@ -597,6 +776,16 @@ app.whenReady().then(() => {
   } catch (err) {
     console.error('[Scheduler] Failed to initialize:', err)
   }
+
+  // Start signal collector - polls Sentry for all projects every 2 minutes
+  signalCollectorTick().catch(err => {
+    console.error('[SignalCollector] Initial tick failed:', err)
+  })
+  setInterval(() => {
+    signalCollectorTick().catch(err => {
+      console.error('[SignalCollector] Tick failed:', err)
+    })
+  }, SIGNAL_COLLECTOR_INTERVAL_MS)
 
   createWindow()
 

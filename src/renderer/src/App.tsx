@@ -87,7 +87,7 @@ export function App() {
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('trace')
-  const [showInspector, setShowInspector] = useState(true)
+  const [showInspector, setShowInspector] = useState(false)
   const [showNewDialog, setShowNewDialog] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
   const [showReview, setShowReview] = useState(false)
@@ -238,7 +238,7 @@ export function App() {
     }
   }, [activeId, refreshWorkflowData])
 
-  const handleCreate = async (goal: string) => {
+  const handleCreate = async (goal: string, signalId?: string) => {
     setShowNewDialog(false)
     setBusy(true)
     setPendingApproval(null)
@@ -259,7 +259,20 @@ export function App() {
     setLastEvent('Starting workflow...')
 
     try {
-      const result = await window.artemis.workflows.start({ goal })
+      const result = await window.artemis.workflows.start({ goal, signalId })
+
+      // If signal claim was rejected, remove the optimistic item
+      if (result.claimed === false) {
+        setWorkflows(prev => prev.filter(w => w.id !== tempId))
+        setActiveId(result.existingWorkflowId ?? null)
+        setLastEvent(`Signal already claimed (status: ${result.signalStatus})`)
+        setBusy(false)
+        if (result.existingWorkflowId) {
+          refreshWorkflowData(result.existingWorkflowId)
+        }
+        return
+      }
+
       // Replace temp with real
       setWorkflows(prev => prev.map(w =>
         w.id === tempId ? { ...w, id: result.id, status: result.status } : w
@@ -351,6 +364,7 @@ export function App() {
               }
             }}
             publishedPR={publishedPR}
+            busy={busy}
           />
         </main>
 
@@ -412,11 +426,11 @@ export function App() {
           onCreateWorkflow={(goal) => {
             handleCreate(goal)
           }}
-          onInvestigate={async (projectId, goal) => {
+          onInvestigate={async (projectId: string, goal: string, signalId?: string) => {
             // Switch to the correct project first, then create workflow
             await window.artemis.projects.setActive({ projectId })
             await refreshProjects()
-            handleCreate(goal)
+            handleCreate(goal, signalId)
           }}
         />
       )}

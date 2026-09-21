@@ -50,7 +50,7 @@ describe('buildSystemPrompt', () => {
     expect(prompt).toContain('Do not push')
     expect(prompt).toContain('Do not add new dependencies')
     expect(prompt).toContain('Commit your changes')
-    expect(prompt).toContain('minimal and focused')
+    expect(prompt).toContain('Keep changes focused')
   })
 })
 
@@ -190,7 +190,7 @@ describe('buildPRTitle', () => {
 })
 
 describe('buildPRBody', () => {
-  it('includes problem, change, verification sections', () => {
+  it('includes task, findings, change, checks sections', () => {
     const body = buildPRBody(
       'Fix ByteString error in Lumi',
       'Root cause: webhook.url passed directly to fetch()',
@@ -203,22 +203,22 @@ describe('buildPRBody', () => {
       'abc12345-def6-7890'
     )
 
-    expect(body).toContain('## Problem')
+    expect(body).toContain('**Task:**')
     expect(body).toContain('ByteString')
-    expect(body).toContain('## Root cause')
+    expect(body).toContain('**What was found:**')
     expect(body).toContain('webhook.url')
-    expect(body).toContain('## Change')
+    expect(body).toContain('**What changed:**')
     expect(body).toContain('1 file(s) changed')
     expect(body).toContain('webhooks.ts')
-    expect(body).toContain('## Verification')
-    expect(body).toContain('test: failed')
-    expect(body).toContain('typecheck: skipped')
+    expect(body).toContain('**Checks:**')
+    expect(body).toContain('`test` :x: failed')
+    expect(body).toContain('`typecheck` :white_circle: skipped')
     expect(body).toContain('abc12345')
   })
 
-  it('omits root cause section when engine output is empty', () => {
+  it('omits findings section when engine output is empty', () => {
     const body = buildPRBody('Fix something', '', { files: ['a.ts'], additions: 1, deletions: 0 }, [], 'wf-123')
-    expect(body).not.toContain('## Root cause')
+    expect(body).not.toContain('**What was found:**')
   })
 })
 

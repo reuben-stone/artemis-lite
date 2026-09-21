@@ -67,7 +67,7 @@ export interface ContextBudget {
 export interface ContextPacket {
   workflowId: string
   stepId: string | null
-  phase: 'plan' | 'verify'
+  phase: 'plan' | 'verify' | 'investigate'
   items: ContextItem[]
   excluded: ExcludedItem[]
   budget: ContextBudget

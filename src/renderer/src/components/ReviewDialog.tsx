@@ -6,6 +6,16 @@ import { ReviewAnalytics } from './ReviewAnalytics'
 
 export type ReviewTab = 'morning' | 'issues' | 'prs' | 'analytics'
 
+export interface SignalInfo {
+  id: string
+  source: string
+  externalId: string
+  status: string
+  workflowId: string | null
+  prNumber: number | null
+  eventCount: number
+}
+
 // Shared data loaded once and passed to all tabs
 export interface ReviewData {
   projects: any[]
@@ -14,6 +24,7 @@ export interface ReviewData {
   analytics: AnalyticsRow[]
   workflows: any[]
   portfolioRows: PortfolioRow[]
+  signals: SignalInfo[]
   loading: boolean
 }
 
@@ -64,14 +75,14 @@ interface Props {
   onClose: () => void
   onSelectWorkflow: (workflowId: string) => void
   onCreateWorkflow: (goal: string) => void
-  onInvestigate: (projectId: string, goal: string) => void
+  onInvestigate: (projectId: string, goal: string, signalId?: string) => void
   initialTab?: ReviewTab
 }
 
 export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, onInvestigate, initialTab = 'morning' }: Props) {
   const [tab, setTab] = useState<ReviewTab>(initialTab)
   const [data, setData] = useState<ReviewData>({
-    projects: [], issues: [], prs: [], analytics: [], workflows: [], portfolioRows: [], loading: true
+    projects: [], issues: [], prs: [], analytics: [], workflows: [], portfolioRows: [], signals: [], loading: true
   })
 
   useEffect(() => {
@@ -90,12 +101,17 @@ export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, onIn
             if (raw && raw.startsWith('[')) mappings = JSON.parse(raw)
           } catch { /* ok */ }
 
-          // Sentry issues
+          // Sentry issues - fetch live then ingest into durable signals
           for (const m of mappings) {
             if (m.sentrySlug) {
               try {
                 const res = await window.artemis.sentry.issues({ projectSlug: m.sentrySlug })
                 if (res.issues) {
+                  // Ingest into operational signals (atomic dedup)
+                  try {
+                    await window.artemis.signals.ingest({ projectId: project.id, projectSlug: m.sentrySlug })
+                  } catch { /* ok - signals still work from previous ingestion */ }
+
                   allIssues.push(...res.issues.map((i: any) => {
                     const colonIdx = i.title.indexOf(':')
                     return {
@@ -177,9 +193,20 @@ export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, onIn
           }
         }
 
+        // Load durable signal state
+        let signals: SignalInfo[] = []
+        try {
+          const res = await window.artemis.signals.list()
+          signals = (res.signals ?? []).map((s: any) => ({
+            id: s.id, source: s.source, externalId: s.externalId,
+            status: s.status, workflowId: s.workflowId, prNumber: s.prNumber,
+            eventCount: s.eventCount
+          }))
+        } catch { /* ok */ }
+
         setData({
           projects, issues: allIssues, prs: allPrs, analytics: allAnalytics,
-          workflows: wfResults, portfolioRows, loading: false
+          workflows: wfResults, portfolioRows, signals, loading: false
         })
       } catch (err) {
         console.error('Review load failed:', err)
@@ -231,7 +258,15 @@ export function ReviewDialog({ onClose, onSelectWorkflow, onCreateWorkflow, onIn
           ) : (
             <>
               {tab === 'morning' && (
-                <ReviewMorning data={data} onSwitchTab={switchTab} onSelectWorkflow={onSelectWorkflow} onInvestigate={(projectId, goal) => { onInvestigate(projectId, goal); onClose() }} onClose={onClose} />
+                <ReviewMorning data={data} onSwitchTab={switchTab} onSelectWorkflow={onSelectWorkflow} onInvestigate={(projectId, goal) => { onInvestigate(projectId, goal); onClose() }} onDismiss={async (signalId) => {
+                  const signal = data.signals.find(s => s.id === signalId)
+                  await window.artemis.signals.ignore({ signalId })
+                  setData(prev => ({
+                    ...prev,
+                    signals: prev.signals.filter(s => s.id !== signalId),
+                    issues: signal ? prev.issues.filter(i => !(i.source === 'sentry' && i.id === signal.externalId)) : prev.issues
+                  }))
+                }} onClose={onClose} />
               )}
               {tab === 'issues' && (
                 <ReviewIssues data={data} onSelectWorkflow={onSelectWorkflow} onInvestigate={(projectId, goal) => { onInvestigate(projectId, goal); onClose() }} onClose={onClose} />
