@@ -1,10 +1,45 @@
-# Artemis Lite
+<div align="center">
+
+```
+ ╔══════════════════════════════════════════════════════════════════╗
+ ║                                                                  ║
+ ║      █████╗ ██████╗ ████████╗███████╗███╗   ███╗██╗███████╗      ║
+ ║     ██╔══██╗██╔══██╗╚══██╔══╝██╔════╝████╗ ████║██║██╔════╝      ║
+ ║     ███████║██████╔╝   ██║   █████╗  ██╔████╔██║██║███████╗      ║
+ ║     ██╔══██║██╔══██╗   ██║   ██╔══╝  ██║╚██╔╝██║██║╚════██║      ║
+ ║     ██║  ██║██║  ██║   ██║   ███████╗██║ ╚═╝ ██║██║███████║      ║
+ ║     ╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝   ╚══════╝╚═╝     ╚═╝╚═╝╚══════╝      ║
+ ║                                                                  ║
+ ║                          ── LITE ──                              ║
+ ║                                                                  ║
+ ║    Deterministic Shell, Probabilistic Core                       ║
+ ║                                                                  ║
+ ║    [ SYSTEM ONLINE ] ──── Portfolio Operations Engine            ║
+ ║                                                                  ║
+ ╚══════════════════════════════════════════════════════════════════╝
+```
+
+<img src="docs/screenshot.png" alt="Artemis Lite - Morning Review" width="800" />
+
+<br />
+
+**Workflow state machine** - **Context budgets** - **Durable recovery** - **Approval gates** - **Fault injection**
+
+[![Electron](https://img.shields.io/badge/Electron-2B2E3A?logo=electron&logoColor=9FEAF9)](https://www.electronjs.org/)
+[![Claude](https://img.shields.io/badge/Claude_API-191919?logo=anthropic&logoColor=white)](https://docs.anthropic.com/)
+[![React](https://img.shields.io/badge/React-20232A?logo=react&logoColor=61DAFB)](https://react.dev/)
+[![SQLite](https://img.shields.io/badge/SQLite-07405E?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![Vitest](https://img.shields.io/badge/Vitest-6E9F18?logo=vitest&logoColor=white)](https://vitest.dev/)
+
+</div>
+
+---
 
 A persistent engineering operations system for supervising a portfolio of software repositories. Artemis Lite is a reconstruction of the original [Artemis](https://github.com/reuben-stone/artemis) around explicit workflow state, selective context, durable recovery and measurable execution. This is an ongoing personal engineering project; source is public for inspection and technical evaluation.
 
 ## Why it exists
 
-The original Artemis proved that a desktop AI operations layer could coordinate meaningful engineering capabilities across a repository ecosystem. Building and using it exposed a harder problem: giving a model capabilities is relatively easy; controlling context, state, side effects, recovery and observability around those capabilities is not.
+The original Artemis proved that a desktop AI operations layer could coordinate meaningful engineering capabilities across a repository ecosystem. Building and using it exposed a harder problem: giving a model capabilities is relatively easy; controlling context, state, side effects, recovery, observability and tracing around those capabilities is not.
 
 Artemis Lite tests a different architectural hypothesis:
 
@@ -76,12 +111,12 @@ Electron Client (React)
 typed IPC (Zod-validated, sandboxed)
     |
 Workflow Orchestrator
-  ├── Explicit state machine + recovery
-  ├── Context Builder (budgeted, per-step)
-  ├── Tool Registry (14 tools, read/write modes)
-  ├── Model Provider (Anthropic adapter)
-  ├── Scheduler (daily cron, Morning Review)
-  └── Approval gates
+  |-- Explicit state machine + recovery
+  |-- Context Builder (budgeted, per-step)
+  |-- Tool Registry (14 tools, read/write modes)
+  |-- Model Provider (Anthropic adapter)
+  |-- Scheduler (daily cron, Morning Review)
+  |-- Approval gates
     |
 SQLite persistence (WAL)
   workflows / steps / traces / approvals
